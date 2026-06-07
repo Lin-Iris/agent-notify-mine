@@ -42,11 +42,14 @@ type AgentNotifyConfig struct {
 
 // ChannelsConfig holds configuration for notification channels.
 type ChannelsConfig struct {
-	Feishu     ChannelConfig           `yaml:"feishu"`      // 飞书通知配置
-	System     ChannelConfig           `yaml:"system"`      // 系统通知配置
-	WechatWork WechatWorkChannelConfig `yaml:"wechat_work"` // 企业微信通知配置
-	DingTalk   DingTalkChannelConfig   `yaml:"dingtalk"`    // 钉钉通知配置
-	Bark       BarkChannelConfig       `yaml:"bark"`        // Bark 通知配置
+	Feishu     ChannelConfig              `yaml:"feishu"`      // 飞书通知配置
+	System     ChannelConfig              `yaml:"system"`      // 系统通知配置
+	WechatWork WechatWorkChannelConfig    `yaml:"wechat_work"` // 企业微信通知配置
+	DingTalk   DingTalkChannelConfig      `yaml:"dingtalk"`    // 钉钉通知配置
+	Bark       BarkChannelConfig          `yaml:"bark"`        // Bark 通知配置
+	ServerChan ServerChanChannelConfig    `yaml:"serverchan"`  // Server酱 通知配置
+	PushPlus   PushPlusChannelConfig      `yaml:"pushplus"`    // PushPlus 通知配置
+	WxPusher   WxPusherChannelConfig      `yaml:"wxpusher"`    // WxPusher 通知配置
 }
 
 // ChannelConfig holds configuration for a single notification channel.
@@ -70,6 +73,25 @@ type DingTalkChannelConfig struct {
 type BarkChannelConfig struct {
 	Enabled    bool   `yaml:"enabled"`     // 是否启用 Bark 通知
 	WebhookURL string `yaml:"webhook_url"` // Bark 推送 URL
+}
+
+// ServerChanChannelConfig holds configuration for ServerChan (Server酱) WeChat push notifications.
+type ServerChanChannelConfig struct {
+	Enabled bool   `yaml:"enabled"` // 是否启用 Server酱 通知
+	SendKey string `yaml:"send_key"` // Server酱 SendKey (SCU 开头)
+}
+
+// PushPlusChannelConfig holds configuration for PushPlus (推送加) WeChat push notifications.
+type PushPlusChannelConfig struct {
+	Enabled bool   `yaml:"enabled"` // 是否启用 PushPlus 通知
+	Token   string `yaml:"token"`   // PushPlus Token
+}
+
+// WxPusherChannelConfig holds configuration for WxPusher WeChat push notifications.
+type WxPusherChannelConfig struct {
+	Enabled   bool   `yaml:"enabled"`    // 是否启用 WxPusher 通知
+	AppToken  string `yaml:"app_token"`  // WxPusher AppToken
+	UID       string `yaml:"uid"`        // WxPusher 用户 UID
 }
 
 // BehaviorConfig holds behavior configuration.
@@ -105,9 +127,12 @@ func Default() Config {
 					WechatWork: WechatWorkChannelConfig{Enabled: false, WebhookURL: ""},
 					DingTalk:   DingTalkChannelConfig{Enabled: false, WebhookURL: ""},
 					Bark:       BarkChannelConfig{Enabled: false, WebhookURL: ""},
+						ServerChan: ServerChanChannelConfig{Enabled: false, SendKey: ""},
+						PushPlus:   PushPlusChannelConfig{Enabled: false, Token: ""},
+						WxPusher:   WxPusherChannelConfig{Enabled: false, AppToken: "", UID: ""},
+					},
 				},
-			},
-			Codex: AgentNotifyConfig{
+				Codex: AgentNotifyConfig{
 				Events: append([]string(nil), codexEvents...),
 				Channels: ChannelsConfig{
 					System:     ChannelConfig{Enabled: false},
@@ -115,6 +140,9 @@ func Default() Config {
 					WechatWork: WechatWorkChannelConfig{Enabled: false, WebhookURL: ""},
 					DingTalk:   DingTalkChannelConfig{Enabled: false, WebhookURL: ""},
 					Bark:       BarkChannelConfig{Enabled: false, WebhookURL: ""},
+						ServerChan: ServerChanChannelConfig{Enabled: false, SendKey: ""},
+						PushPlus:   PushPlusChannelConfig{Enabled: false, Token: ""},
+						WxPusher:   WxPusherChannelConfig{Enabled: false, AppToken: "", UID: ""},
 				},
 			},
 		},

@@ -101,6 +101,9 @@ func runTestMenu(ctx context.Context, streams Streams, prompter Prompter) error 
 		{Label: "企业微信", Value: "wechat-work"},
 		{Label: "钉钉", Value: "dingtalk"},
 		{Label: "Bark", Value: "bark"},
+		{Label: "Server酱", Value: "serverchan"},
+		{Label: "PushPlus", Value: "pushplus"},
+		{Label: "WxPusher", Value: "wxpusher"},
 		{Label: "返回", Value: "back"},
 	}, "system")
 	if err != nil {
@@ -118,6 +121,12 @@ func runTestMenu(ctx context.Context, streams Streams, prompter Prompter) error 
 		return runTestDingTalk(ctx, streams)
 	case "bark":
 		return runTestBark(ctx, streams)
+	case "serverchan":
+		return runTestServerChan(ctx, streams)
+	case "pushplus":
+		return runTestPushPlus(ctx, streams)
+	case "wxpusher":
+		return runTestWxPusher(ctx, streams)
 	default:
 		return nil
 	}
@@ -130,6 +139,9 @@ func runChannelsMenu(ctx context.Context, streams Streams, prompter Prompter) er
 			{Label: "企业微信", Value: "wechatwork-init"},
 			{Label: "钉钉", Value: "dingtalk-init"},
 			{Label: "Bark", Value: "bark-init"},
+			{Label: "Server酱", Value: "serverchan-init"},
+			{Label: "PushPlus", Value: "pushplus-init"},
+			{Label: "WxPusher", Value: "wxpusher-init"},
 			{Label: "返回", Value: "back"},
 		}, "feishu-init")
 		if err != nil {
@@ -152,6 +164,18 @@ func runChannelsMenu(ctx context.Context, streams Streams, prompter Prompter) er
 			}
 		case "bark-init":
 			if err := runInitBark(streams, prompter); err != nil {
+				return err
+			}
+		case "serverchan-init":
+			if err := runInitServerChan(streams, prompter); err != nil {
+				return err
+			}
+		case "pushplus-init":
+			if err := runInitPushPlus(streams, prompter); err != nil {
+				return err
+			}
+		case "wxpusher-init":
+			if err := runInitWxPusher(streams, prompter); err != nil {
 				return err
 			}
 		case "back":
@@ -225,6 +249,13 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 	defaultCfg.Notify.ClaudeCode.Channels.DingTalk.WebhookURL = ""
 	defaultCfg.Notify.ClaudeCode.Channels.Bark.Enabled = false
 	defaultCfg.Notify.ClaudeCode.Channels.Bark.WebhookURL = ""
+		defaultCfg.Notify.ClaudeCode.Channels.ServerChan.Enabled = false
+		defaultCfg.Notify.ClaudeCode.Channels.ServerChan.SendKey = ""
+		defaultCfg.Notify.ClaudeCode.Channels.PushPlus.Enabled = false
+		defaultCfg.Notify.ClaudeCode.Channels.PushPlus.Token = ""
+		defaultCfg.Notify.ClaudeCode.Channels.WxPusher.Enabled = false
+		defaultCfg.Notify.ClaudeCode.Channels.WxPusher.AppToken = ""
+		defaultCfg.Notify.ClaudeCode.Channels.WxPusher.UID = ""
 	defaultCfg.Notify.ClaudeCode.Events = nil
 	// Clear Codex channel toggles
 	defaultCfg.Notify.Codex.Channels.Feishu.Enabled = false
@@ -235,6 +266,13 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 	defaultCfg.Notify.Codex.Channels.DingTalk.WebhookURL = ""
 	defaultCfg.Notify.Codex.Channels.Bark.Enabled = false
 	defaultCfg.Notify.Codex.Channels.Bark.WebhookURL = ""
+		defaultCfg.Notify.Codex.Channels.ServerChan.Enabled = false
+		defaultCfg.Notify.Codex.Channels.ServerChan.SendKey = ""
+		defaultCfg.Notify.Codex.Channels.PushPlus.Enabled = false
+		defaultCfg.Notify.Codex.Channels.PushPlus.Token = ""
+		defaultCfg.Notify.Codex.Channels.WxPusher.Enabled = false
+		defaultCfg.Notify.Codex.Channels.WxPusher.AppToken = ""
+		defaultCfg.Notify.Codex.Channels.WxPusher.UID = ""
 	defaultCfg.Notify.Codex.Events = nil
 	if err := config.Save(cfgPath, defaultCfg); err != nil {
 		return fmt.Errorf("保存默认配置失败: %w", err)

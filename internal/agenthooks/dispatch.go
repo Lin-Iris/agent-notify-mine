@@ -56,6 +56,15 @@ func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 	if notifyCfg.Channels.Bark.Enabled && notifyCfg.Channels.Bark.WebhookURL != "" {
 		senders = append(senders, notify.NewBarkSender(notifyCfg.Channels.Bark.WebhookURL))
 	}
+	if notifyCfg.Channels.ServerChan.Enabled && notifyCfg.Channels.ServerChan.SendKey != "" {
+		senders = append(senders, notify.NewServerChanSender(notifyCfg.Channels.ServerChan.SendKey))
+	}
+	if notifyCfg.Channels.PushPlus.Enabled && notifyCfg.Channels.PushPlus.Token != "" {
+		senders = append(senders, notify.NewPushPlusSender(notifyCfg.Channels.PushPlus.Token))
+	}
+	if notifyCfg.Channels.WxPusher.Enabled && notifyCfg.Channels.WxPusher.AppToken != "" && notifyCfg.Channels.WxPusher.UID != "" {
+		senders = append(senders, notify.NewWxPusherSender(notifyCfg.Channels.WxPusher.AppToken, notifyCfg.Channels.WxPusher.UID))
+	}
 
 	return senders
 }

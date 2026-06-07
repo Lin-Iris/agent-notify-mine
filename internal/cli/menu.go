@@ -225,6 +225,7 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 	for _, integ := range []agentintegrations.Integration{
 		agentintegrations.NewClaudeIntegration(),
 		agentintegrations.NewCodexIntegration(),
+		agentintegrations.NewCodeBuddyIntegration(),
 	} {
 		settingsPath, err := integ.SettingsPath("user")
 		if err != nil {
@@ -274,6 +275,23 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 		defaultCfg.Notify.Codex.Channels.WxPusher.AppToken = ""
 		defaultCfg.Notify.Codex.Channels.WxPusher.UID = ""
 	defaultCfg.Notify.Codex.Events = nil
+	// Clear CodeBuddy channel toggles
+	defaultCfg.Notify.CodeBuddy.Channels.Feishu.Enabled = false
+	defaultCfg.Notify.CodeBuddy.Channels.System.Enabled = false
+	defaultCfg.Notify.CodeBuddy.Channels.WechatWork.Enabled = false
+	defaultCfg.Notify.CodeBuddy.Channels.WechatWork.WebhookURL = ""
+	defaultCfg.Notify.CodeBuddy.Channels.DingTalk.Enabled = false
+	defaultCfg.Notify.CodeBuddy.Channels.DingTalk.WebhookURL = ""
+	defaultCfg.Notify.CodeBuddy.Channels.Bark.Enabled = false
+	defaultCfg.Notify.CodeBuddy.Channels.Bark.WebhookURL = ""
+	defaultCfg.Notify.CodeBuddy.Channels.ServerChan.Enabled = false
+	defaultCfg.Notify.CodeBuddy.Channels.ServerChan.SendKey = ""
+	defaultCfg.Notify.CodeBuddy.Channels.PushPlus.Enabled = false
+	defaultCfg.Notify.CodeBuddy.Channels.PushPlus.Token = ""
+	defaultCfg.Notify.CodeBuddy.Channels.WxPusher.Enabled = false
+	defaultCfg.Notify.CodeBuddy.Channels.WxPusher.AppToken = ""
+	defaultCfg.Notify.CodeBuddy.Channels.WxPusher.UID = ""
+	defaultCfg.Notify.CodeBuddy.Events = nil
 	if err := config.Save(cfgPath, defaultCfg); err != nil {
 		return fmt.Errorf("保存默认配置失败: %w", err)
 	}

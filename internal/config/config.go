@@ -20,6 +20,7 @@ type Config struct {
 type AgentConfig struct {
 	ClaudeCode AgentTargetConfig `yaml:"claude_code"` // Claude Code 配置
 	Codex      AgentTargetConfig `yaml:"codex"`       // Codex 配置
+	CodeBuddy  AgentTargetConfig `yaml:"codebuddy"`   // CodeBuddy 配置
 }
 
 // AgentTargetConfig holds configuration for a specific agent.
@@ -32,6 +33,7 @@ type AgentTargetConfig struct {
 type NotifyConfig struct {
 	ClaudeCode AgentNotifyConfig `yaml:"claude_code"` // Claude Code 通知配置
 	Codex      AgentNotifyConfig `yaml:"codex"`       // Codex 通知配置
+	CodeBuddy  AgentNotifyConfig `yaml:"codebuddy"`   // CodeBuddy 通知配置
 }
 
 // AgentNotifyConfig holds notification configuration for a single agent.
@@ -103,7 +105,6 @@ type BehaviorConfig struct {
 
 func Default() Config {
 	allEvents := []string{"permission_required", "input_required", "run_completed", "run_failed"}
-	// Codex hooks 当前可靠支持的两个事件
 	codexEvents := []string{"permission_required", "run_completed"}
 
 	return Config{
@@ -117,6 +118,10 @@ func Default() Config {
 				Enabled:      false,
 				InstallScope: "user",
 			},
+			CodeBuddy: AgentTargetConfig{
+				Enabled:      false,
+				InstallScope: "user",
+			},
 		},
 		Notify: NotifyConfig{
 			ClaudeCode: AgentNotifyConfig{
@@ -127,12 +132,12 @@ func Default() Config {
 					WechatWork: WechatWorkChannelConfig{Enabled: false, WebhookURL: ""},
 					DingTalk:   DingTalkChannelConfig{Enabled: false, WebhookURL: ""},
 					Bark:       BarkChannelConfig{Enabled: false, WebhookURL: ""},
-						ServerChan: ServerChanChannelConfig{Enabled: false, SendKey: ""},
-						PushPlus:   PushPlusChannelConfig{Enabled: false, Token: ""},
-						WxPusher:   WxPusherChannelConfig{Enabled: false, AppToken: "", UID: ""},
-					},
+					ServerChan: ServerChanChannelConfig{Enabled: false, SendKey: ""},
+					PushPlus:   PushPlusChannelConfig{Enabled: false, Token: ""},
+					WxPusher:   WxPusherChannelConfig{Enabled: false, AppToken: "", UID: ""},
 				},
-				Codex: AgentNotifyConfig{
+			},
+			Codex: AgentNotifyConfig{
 				Events: append([]string(nil), codexEvents...),
 				Channels: ChannelsConfig{
 					System:     ChannelConfig{Enabled: false},
@@ -140,9 +145,22 @@ func Default() Config {
 					WechatWork: WechatWorkChannelConfig{Enabled: false, WebhookURL: ""},
 					DingTalk:   DingTalkChannelConfig{Enabled: false, WebhookURL: ""},
 					Bark:       BarkChannelConfig{Enabled: false, WebhookURL: ""},
-						ServerChan: ServerChanChannelConfig{Enabled: false, SendKey: ""},
-						PushPlus:   PushPlusChannelConfig{Enabled: false, Token: ""},
-						WxPusher:   WxPusherChannelConfig{Enabled: false, AppToken: "", UID: ""},
+					ServerChan: ServerChanChannelConfig{Enabled: false, SendKey: ""},
+					PushPlus:   PushPlusChannelConfig{Enabled: false, Token: ""},
+					WxPusher:   WxPusherChannelConfig{Enabled: false, AppToken: "", UID: ""},
+				},
+			},
+			CodeBuddy: AgentNotifyConfig{
+				Events: append([]string(nil), allEvents...),
+				Channels: ChannelsConfig{
+					System:     ChannelConfig{Enabled: true},
+					Feishu:     ChannelConfig{Enabled: false},
+					WechatWork: WechatWorkChannelConfig{Enabled: false, WebhookURL: ""},
+					DingTalk:   DingTalkChannelConfig{Enabled: false, WebhookURL: ""},
+					Bark:       BarkChannelConfig{Enabled: false, WebhookURL: ""},
+					ServerChan: ServerChanChannelConfig{Enabled: false, SendKey: ""},
+					PushPlus:   PushPlusChannelConfig{Enabled: false, Token: ""},
+					WxPusher:   WxPusherChannelConfig{Enabled: false, AppToken: "", UID: ""},
 				},
 			},
 		},
@@ -202,6 +220,22 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Agent.Codex.InstallScope == "" {
 		cfg.Agent.Codex.InstallScope = "user"
+	}
+	if cfg.Agent.CodeBuddy.InstallScope == "" {
+		cfg.Agent.CodeBuddy.InstallScope = "user"
+	}
+	if len(cfg.Notify.CodeBuddy.Events) == 0 {
+		cfg.Notify.CodeBuddy.Events = append([]string(nil), cfg.Notify.ClaudeCode.Events...)
+	}
+	if !cfg.Notify.CodeBuddy.Channels.System.Enabled &&
+		!cfg.Notify.CodeBuddy.Channels.Feishu.Enabled &&
+		!cfg.Notify.CodeBuddy.Channels.WechatWork.Enabled &&
+		!cfg.Notify.CodeBuddy.Channels.DingTalk.Enabled &&
+		!cfg.Notify.CodeBuddy.Channels.Bark.Enabled &&
+		!cfg.Notify.CodeBuddy.Channels.ServerChan.Enabled &&
+		!cfg.Notify.CodeBuddy.Channels.PushPlus.Enabled &&
+		!cfg.Notify.CodeBuddy.Channels.WxPusher.Enabled {
+		cfg.Notify.CodeBuddy.Channels.System.Enabled = true
 	}
 	if cfg.Behavior.DedupeSeconds == 0 {
 		cfg.Behavior.DedupeSeconds = 60

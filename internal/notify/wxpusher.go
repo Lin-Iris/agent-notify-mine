@@ -32,6 +32,35 @@ func NewWxPusherSender(appToken, uid string) *WxPusherSender {
 	}
 }
 
+// 辅助函数：截断字符串用于通知栏摘要（WxPusher 限制 100 字以内）
+func truncateForSummary(s string) string {
+	runes := []rune(s)
+	if len(runes) > 80 {
+		return string(runes[:77]) + "..."
+	}
+	return s
+}
+
+// 辅助函数：去除 HTML 标签
+func stripHTML(s string) string {
+	var buf strings.Builder
+	inTag := false
+	for _, r := range s {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag {
+			buf.WriteRune(r)
+		}
+	}
+	return strings.TrimSpace(buf.String())
+}
+
 func (s *WxPusherSender) Name() string { return "wxpusher" }
 
 func (s *WxPusherSender) Send(ctx context.Context, msg Message) error {
@@ -39,13 +68,17 @@ func (s *WxPusherSender) Send(ctx context.Context, msg Message) error {
 		return fmt.Errorf("wxpusher: appToken 或 uid 未配置")
 	}
 
-	// WxPusher 使用 HTML 格式的内容
+	// 构建推送内容
 	content := fmt.Sprintf("<h3>%s</h3><p>%s</p>", msg.Title, msg.Body)
+
+	// 通知栏摘要（显示在微信通知消息中）
+	summary := truncateForSummary(msg.Title + " - " + stripHTML(msg.Body))
 
 	payload := map[string]interface{}{
 		"appToken":    s.appToken,
 		"content":     content,
 		"contentType": 2, // 2 = HTML
+		"summary":     summary,
 		"uids":        []string{s.uid},
 	}
 

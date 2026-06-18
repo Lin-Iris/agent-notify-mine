@@ -19,6 +19,8 @@ func appDisplayName(agent string) string {
 		return "Claude Code"
 	case "codex":
 		return "Codex"
+	case "codebuddy":
+		return "CodeBuddy"
 	default:
 		return agent
 	}

@@ -11,6 +11,10 @@ import (
 )
 
 const hookCommandMarker = "handle-codebuddy-hook"
+const preToolUseCommandMarker = "handle-codebuddy-pretooluse"
+
+// preToolUseMatcher 匹配需要通知的高风险工具
+const preToolUseMatcher = "execute_command|write_to_file|delete_file|create_file|ask_followup_question|edit_and_apply|edit"
 
 // CodeBuddy 托管的 hook 事件列表
 var managedEvents = []string{
@@ -18,14 +22,16 @@ var managedEvents = []string{
 	"Notification",
 	"PostToolUseFailure",
 	"SessionEnd",
+	"PreToolUse",
 }
 
 // BuildHookSettings 构建 CodeBuddy settings.json 中的 hooks 配置。
 func BuildHookSettings(binaryPath string) map[string]any {
 	binaryPath = common.ResolveBinaryPath(binaryPath)
 	command := binaryPath + " " + hookCommandMarker
+	preToolUseCommand := binaryPath + " " + preToolUseCommandMarker
 
-	entry := func() []map[string]any {
+	makeEntry := func() []map[string]any {
 		return []map[string]any{
 			{
 				"hooks": []map[string]any{
@@ -38,9 +44,28 @@ func BuildHookSettings(binaryPath string) map[string]any {
 		}
 	}
 
+	makePreToolUseEntry := func() []map[string]any {
+		return []map[string]any{
+			{
+				"matcher": preToolUseMatcher,
+				"hooks": []map[string]any{
+					{
+						"type":    "command",
+						"command": preToolUseCommand,
+						"timeout": 10,
+					},
+				},
+			},
+		}
+	}
+
 	hooks := map[string]any{}
 	for _, name := range managedEvents {
-		hooks[name] = entry()
+		if name == "PreToolUse" {
+			hooks[name] = makePreToolUseEntry()
+		} else {
+			hooks[name] = makeEntry()
+		}
 	}
 	return map[string]any{"hooks": hooks}
 }
@@ -54,6 +79,7 @@ func Install(path string, binaryPath string) error {
 
 	binaryPath = common.ResolveBinaryPath(binaryPath)
 	command := binaryPath + " " + hookCommandMarker
+	preToolUseCommand := binaryPath + " " + preToolUseCommandMarker
 
 	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
@@ -65,14 +91,29 @@ func Install(path string, binaryPath string) error {
 			continue
 		}
 		entries := toAnySlice(hooks[event])
-		entries = append(entries, map[string]any{
-			"hooks": []any{
-				map[string]any{
-					"type":    "command",
-					"command": command,
+
+		if event == "PreToolUse" {
+			entries = append(entries, map[string]any{
+				"matcher": preToolUseMatcher,
+				"hooks": []any{
+					map[string]any{
+						"type":    "command",
+						"command": preToolUseCommand,
+						"timeout": 10,
+					},
 				},
-			},
-		})
+			})
+		} else {
+			entries = append(entries, map[string]any{
+				"hooks": []any{
+					map[string]any{
+						"type":    "command",
+						"command": command,
+					},
+				},
+			})
+		}
+
 		hooks[event] = entries
 	}
 	settings["hooks"] = hooks
@@ -220,7 +261,7 @@ func isManagedHook(hook any) bool {
 		return false
 	}
 	cmd, _ := m["command"].(string)
-	return strings.Contains(cmd, hookCommandMarker)
+	return strings.Contains(cmd, hookCommandMarker) || strings.Contains(cmd, preToolUseCommandMarker)
 }
 
 func toAnySlice(v any) []any {

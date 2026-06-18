@@ -30,14 +30,9 @@ func ParseMessage(data []byte) (notify.Message, error) {
 
 	switch p.HookEventName {
 	case "Stop":
-		return notify.Message{
-			Agent:     "codebuddy",
-			Event:     "run_completed",
-			SessionID: p.SessionID,
-			Workspace: p.CWD,
-			Title:     notify.FormatTitle("codebuddy", "run_completed"),
-			Body:      notify.DefaultBody("run_completed"),
-		}, nil
+		// CodeBuddy 的 Stop 在每次工具执行后都触发（bash/编辑等），
+		// 不是真正的"任务完成"，跳过不发通知
+		return notify.Message{}, fmt.Errorf("skip event: Stop（工具级别回调，不通知）")
 
 	case "Notification":
 		// CodeBuddy 的 Notification 通过 matcher 区分具体类型

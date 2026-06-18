@@ -16,7 +16,9 @@ import (
 
 const (
 	// 防抖窗口：连续 Stop 事件在此时间内不重复通知（秒）
-	DebounceSeconds = 8
+	// CodeBuddy 的 Stop 是对话回合结束，用户需手动输入才触发下一轮，
+	// 所以 3 秒足够区分"连续对话"和"任务真正结束"
+	DebounceSeconds = 3
 )
 
 // DebounceFilePath 返回防抖状态文件路径，放在 agent-notify 配置目录下。

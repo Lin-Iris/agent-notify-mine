@@ -72,8 +72,9 @@ internal/
 │   ├── handler.go                 # Handle(): stdin → Parse → Dispatch
 │   └── settings.go                # Install/Uninstall/IsInstalled
 ├── codebuddyhooks/                # CodeBuddy hook JSON 解析 + settings 读写 (新增)
-│   ├── event.go                   # ParseMessage(): Stop/Notification(idle_prompt/permission_prompt)/SessionEnd
-│   ├── handler.go
+│   ├── event.go                   # ParseMessage(): Stop/Notification/SessionEnd/PostToolUseFailure
+│   ├── handler.go                 # Handle(): Stop 用文件+后台进程做防抖（8秒内不重复）
+│   ├── debounce.go                # File-based Stop debounce: RecordStop() + CheckAndFire()
 │   └── settings.go
 ├── codexhooks/                    # Codex hook 解析 (原项目自带)
 ├── cli/                           # TUI 交互界面 (cobra + promptui)
@@ -83,6 +84,7 @@ internal/
 │   ├── init.go                    # init 命令：安装 hook + 配置通道
 │   ├── handler_claude.go          # handle-claude-hook 子命令
 │   ├── handler_codebuddy.go       # handle-codebuddy-hook 子命令 (新增)
+│   ├── handler_codebuddy_fire.go  # handle-codebuddy-fire-stop 防抖触发 (新增)
 │   ├── handler_codex.go           # handle-codex-hook 子命令
 │   ├── actions.go                 # 系统通知/飞书/企微配置动作
 │   ├── actions_serverchan.go      # Server酱 配置+测试 (新增)

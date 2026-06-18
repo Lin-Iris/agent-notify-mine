@@ -17,8 +17,7 @@ type payload struct {
 	ToolName      string         `json:"tool_name"`
 	ToolResponse  map[string]any `json:"tool_response"`
 	ToolInput     map[string]any `json:"tool_input"`
-	// CodeBuddy Notification 事件的 matcher 字段
-	Matcher string `json:"matcher"`
+	Matcher       string         `json:"matcher"`
 }
 
 // ParseMessage 解析 CodeBuddy hook 传入的 JSON，转为统一的 Message 格式。
@@ -30,12 +29,18 @@ func ParseMessage(data []byte) (notify.Message, error) {
 
 	switch p.HookEventName {
 	case "Stop":
-		// CodeBuddy 的 Stop 在每次工具执行后都触发（bash/编辑等），
-		// 不是真正的"任务完成"，跳过不发通知
-		return notify.Message{}, fmt.Errorf("skip event: Stop（工具级别回调，不通知）")
+		// Stop 在一个对话回合结束时触发。为了避免每个回合都通知，
+		// handler 层会做防抖处理。这里正常返回消息。
+		return notify.Message{
+			Agent:     "codebuddy",
+			Event:     "run_completed",
+			SessionID: p.SessionID,
+			Workspace: p.CWD,
+			Title:     notify.FormatTitle("codebuddy", "run_completed"),
+			Body:      notify.DefaultBody("run_completed"),
+		}, nil
 
 	case "Notification":
-		// CodeBuddy 的 Notification 通过 matcher 区分具体类型
 		switch p.Matcher {
 		case "permission_prompt":
 			return notify.Message{
@@ -56,7 +61,6 @@ func ParseMessage(data []byte) (notify.Message, error) {
 				Body:      "CodeBuddy 空闲超过 60 秒，正在等待你的输入",
 			}, nil
 		default:
-			// 其他 Notification 类型，仍然尝试根据 message 内容判断
 			if isInputRequiredMessage(p.Message) {
 				return notify.Message{
 					Agent:     "codebuddy",

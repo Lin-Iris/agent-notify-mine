@@ -62,6 +62,90 @@ npx agent-notify
 
 > **注意**: Codex 通过 `~/.codex/hooks.json` 接入官方 hooks 系统，目前仅订阅 `PermissionRequest`、`Stop` 两个事件。首次安装后请在 codex 内运行 `/hooks` 完成 trust 审核。
 
+## 在其他设备上使用
+
+### 方式一：从源码构建（推荐）
+
+```bash
+git clone https://github.com/Lin-Iris/agent-notify-mine.git
+cd agent-notify-mine/agent-notify-go
+go build -o /usr/local/bin/agent-notify ./cmd/agent-notify/
+```
+
+### 方式二：下载 Release 二进制
+
+从 [Releases](https://github.com/hellolib/agent-notify/releases) 下载对应平台的最新压缩包，解压后将 `agent-notify` 放入 PATH。
+
+### 初始化配置
+
+```bash
+# 交互式配置（选择 Agent、通知渠道、事件）
+agent-notify init
+
+# 或分步配置消息渠道
+agent-notify
+
+# 测试通知是否正常
+agent-notify test
+```
+
+## 支持的 Agent
+
+目前支持 **3 个 Agent**，每个 Agent 可独立配置订阅的事件和通知渠道：
+
+| Agent | Hook 配置位置 | 支持的事件数 | 配置命令 |
+|-------|-------------|:----------:|---------|
+| **Claude Code** | `~/.claude/settings.json` | 4 | `agent-notify init` 选择 Claude Code |
+| **Codex** | `~/.codex/hooks.json` | 2 | `agent-notify init` 选择 Codex |
+| **CodeBuddy** | `~/.codebuddy/settings.json` | 4 | `agent-notify init` 选择 CodeBuddy |
+
+### Agent 事件对照
+
+| 统一事件 | 含义 | Claude Code | Codex | CodeBuddy |
+|---------|------|:-----------:|:-----:|:---------:|
+| `permission_required` | 需要用户授权执行操作 | ✅ | ✅ | ✅ |
+| `input_required` | 等待用户输入 | ✅ | — | ✅ |
+| `run_completed` | 任务执行完成 | ✅ | ✅ | ✅ |
+| `run_failed` | 任务执行失败 | ✅ | — | ✅ |
+
+### Agent 通知设置
+
+```text
+Claude Code 推荐事件:
+  ├─ permission_required  ← 执行命令前通知
+  ├─ input_required       ← 等待输入时通知
+  ├─ run_completed        ← 任务完成时通知
+  └─ run_failed           ← 任务失败时通知
+
+Codex 推荐事件:
+  ├─ permission_required  ← 需要授权时通知
+  └─ run_completed        ← 任务完成时通知
+
+CodeBuddy 推荐事件:
+  ├─ permission_required  ← 执行高风险操作前通知
+  ├─ input_required       ← 空闲超过 60s 时通知
+  ├─ run_completed        ← 每轮对话完成时通知
+  └─ run_failed           ← 工具执行失败时通知
+```
+
+### 配置通知渠道
+
+每个 Agent 可独立选择推送渠道：
+
+```bash
+agent-notify
+# → 选择「消息渠道配置」
+# → 选择渠道：系统通知 / 飞书 / 企业微信 / 钉钉 / Bark / Server酱 / PushPlus / WxPusher
+# → 按提示输入凭证（Webhook URL / Token / Key 等）
+```
+
+### 验证配置是否生效
+
+```bash
+agent-notify doctor        # 查看所有 Agent hook 安装状态
+agent-notify test          # 发送测试通知到手机
+```
+
 
 ## 配置说明
 

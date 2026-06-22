@@ -82,6 +82,8 @@ func DispatchEvent(ctx context.Context, cfg config.Config, statePath, logPath st
 	// 构建最终 Message
 	msg := eventToMessage(evt)
 	msg.Event = event.StatusToEventName(decision.Status)
+	// 状态机升级状态后，标题也要跟着变，否则一直是"运行中"
+	msg.Title = notify.FormatTitle(evt.Agent, msg.Event)
 
 	// 检查该事件是否在用户配置中启用
 	notifyCfg := notifyConfigForAgent(cfg, evt.Agent)

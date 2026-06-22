@@ -176,14 +176,123 @@ CodeBuddy 推荐事件:
   └─ run_failed           ← 工具执行失败时通知
 ```
 
-### 配置通知渠道
+### 各 Agent 配置详情
 
-每个 Agent 可独立选择推送渠道。运行 `agent-notify` 进入交互菜单，选择「消息渠道配置」。
+#### Claude Code
 
-目前支持 **9 个通知渠道**：
+| 项目 | 说明 |
+|------|------|
+| Hook 文件 | `~/.claude/settings.json` |
+| 支持事件 | `permission_required` / `input_required` / `run_completed` / `run_failed` |
+| 通知渠道示例 | WxPusher（与其他 Agent 共用，配置一次即可） |
 
-| 渠道 | 类型 | 所需凭证 | 平台限制 |
-|------|------|---------|---------|
+<details>
+<summary>点击展开 Claude Code 通知配置示例</summary>
+
+```bash
+# 运行配置向导
+agent-notify init
+# → 选择 Agent: Claude Code
+# → 选择渠道: WxPusher（或其他渠道）
+# → 选择事件: 全选四个事件
+```
+
+配置后的 YAML：
+
+```yaml
+notify:
+  claude_code:
+    events:
+      - permission_required
+      - input_required
+      - run_completed
+      - run_failed
+    channels:
+      wxpusher:
+        enabled: true
+        app_token: AT_xxxxx
+        uid: UID_xxxxx
+```
+</details>
+
+---
+
+#### Codex
+
+| 项目 | 说明 |
+|------|------|
+| Hook 文件 | `~/.codex/hooks.json` |
+| 支持事件 | `permission_required` / `run_completed` |
+| 通知渠道示例 | WxPusher |
+| 额外步骤 | 安装后需在 Codex 内运行 `/hooks` 信任 |
+
+<details>
+<summary>点击展开 Codex 通知配置示例</summary>
+
+```bash
+agent-notify init
+# → 选择 Agent: Codex
+# → 选择渠道: WxPusher
+# → 选择事件: permission_required + run_completed
+```
+
+配置后的 YAML：
+
+```yaml
+notify:
+  codex:
+    events:
+      - permission_required
+      - run_completed
+    channels:
+      wxpusher:
+        enabled: true
+        app_token: AT_xxxxx
+        uid: UID_xxxxx
+```
+</details>
+
+---
+
+#### CodeBuddy
+
+| 项目 | 说明 |
+|------|------|
+| Hook 文件 | `~/.codebuddy/settings.json` |
+| 支持事件 | `permission_required` / `input_required` / `run_completed` / `run_failed` |
+| 通知渠道示例 | WxPusher |
+
+<details>
+<summary>点击展开 CodeBuddy 通知配置示例</summary>
+
+```bash
+agent-notify init
+# → 选择 Agent: CodeBuddy
+# → 选择渠道: WxPusher
+# → 选择事件: 全选四个事件
+```
+
+配置后的 YAML：
+
+```yaml
+notify:
+  codebuddy:
+    events:
+      - permission_required
+      - input_required
+      - run_completed
+      - run_failed
+    channels:
+      wxpusher:
+        enabled: true
+        app_token: AT_xxxxx
+        uid: UID_xxxxx
+```
+</details>
+
+---
+
+### 通知渠道配置（按渠道）
 | 🖥️ 系统通知 | 本地推送 | 无 | macOS / Linux / Windows |
 | <img src="assist/logo/feishu.png" width="20" align="absmiddle"> 飞书 | 机器人消息 | 飞书 App 扫码绑定 | — |
 | <img src="assist/logo/dingding.png" width="20" align="absmiddle"> 钉钉 | 群机器人 Webhook | Webhook URL | — |

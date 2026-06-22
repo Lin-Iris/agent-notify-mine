@@ -78,6 +78,7 @@ func (s *WxPusherSender) Send(ctx context.Context, msg Message) error {
 		"appToken":    s.appToken,
 		"content":     content,
 		"contentType": 2, // 2 = HTML
+		"title":       msg.Title,
 		"summary":     summary,
 		"uids":        []string{s.uid},
 	}

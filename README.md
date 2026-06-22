@@ -74,7 +74,35 @@ go build -o /usr/local/bin/agent-notify ./cmd/agent-notify/
 
 ### 方式二：下载 Release 二进制
 
-从 [Releases](https://github.com/hellolib/agent-notify/releases) 下载对应平台的最新压缩包，解压后将 `agent-notify` 放入 PATH。
+从 [Releases](https://github.com/Lin-Iris/agent-notify-mine/releases) 下载对应平台的最新压缩包。
+
+```bash
+# 以 macOS M1/M2/M3/M4/M5 为例（darwin-arm64）
+curl -L -o agent-notify.tar.gz \
+  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.9.0/agent-notify-v0.9.0-darwin-arm64.tar.gz
+
+# 解压（任何目录都可以）
+tar xzf agent-notify.tar.gz
+
+# 安装到系统 PATH
+sudo mv agent-notify /usr/local/bin/
+
+# 验证
+agent-notify --help
+```
+
+> 解压可以在任意目录执行，解压后得到 `agent-notify` 二进制文件。
+> 只要把这个文件放到 PATH 中的目录（如 `/usr/local/bin/`）即可全局使用。
+> 解压出来的临时目录可以随时删除。
+
+**选择正确的文件：**
+
+| 你的电脑 | 下载文件 |
+|---------|---------|
+| MacBook Air M5 / Intel Mac | `*-darwin-arm64.tar.gz` / `*-darwin-amd64.tar.gz` |
+| Linux 服务器 (amd64) | `*-linux-amd64.tar.gz` |
+| Linux 服务器 (arm64) | `*-linux-arm64.tar.gz` |
+| Windows PC | `*-windows-amd64.tar.gz` 或 `*-windows-arm64.tar.gz` |
 
 ### 初始化配置
 

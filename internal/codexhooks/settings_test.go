@@ -109,15 +109,16 @@ func TestInstall_PreservesUserHooks(t *testing.T) {
 	hooks := got["hooks"].(map[string]any)
 	stopEntries := hooks["Stop"].([]any)
 	if len(stopEntries) != 2 {
-		t.Fatalf("Stop entry count = %d, want 2 (user + agent-notify)", len(stopEntries))
+		t.Fatalf("Stop entry count = %d, want 2 (1 user + 1 managed)", len(stopEntries))
 	}
 
-	commands := collectCommandsForTest(stopEntries)
-	if !containsString(commands, "echo user-stop") {
-		t.Fatalf("user hook command lost: %v", commands)
+	// 用户 hook 保留
+	allCommands := collectCommandsForTest(stopEntries)
+	if !containsString(allCommands, "echo user-stop") {
+		t.Fatalf("user hook command lost: %v", allCommands)
 	}
-	if !containsSubstring(commands, hookCommandMarker) {
-		t.Fatalf("agent-notify hook command missing: %v", commands)
+	if !containsSubstring(allCommands, hookCommandMarker) {
+		t.Fatalf("agent-notify hook command missing: %v", allCommands)
 	}
 }
 

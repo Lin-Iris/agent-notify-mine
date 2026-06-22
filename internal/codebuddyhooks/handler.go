@@ -10,9 +10,8 @@ import (
 	"github.com/hellolib/agent-notify/internal/state"
 )
 
-// Handle 处理 CodeBuddy hook 的 stdin 输入，解析事件并分发通知。
-// Stop 事件直接分发通知——CodeBuddy 每个对话回合只触发一次 Stop，
-// 收到 Stop 就意味着本轮任务完成，可以立即通知用户。
+var defaultAdapter = Adapter{}
+
 func Handle(ctx context.Context, cfg config.Config, statePath, logPath string, stdin io.Reader) error {
 	data, err := io.ReadAll(stdin)
 	if err != nil {
@@ -21,10 +20,10 @@ func Handle(ctx context.Context, cfg config.Config, statePath, logPath string, s
 
 	_ = state.AppendLog(logPath, fmt.Sprintf("codebuddy: raw stdin: %s", string(data)))
 
-	msg, err := ParseMessage(data)
+	evt, err := defaultAdapter.Parse(data)
 	if err != nil {
 		return state.AppendLog(logPath, fmt.Sprintf("codebuddy: skip event: %v", err))
 	}
 
-	return agenthooks.Dispatch(ctx, cfg, statePath, logPath, msg)
+	return agenthooks.DispatchEvent(ctx, cfg, statePath, logPath, evt)
 }

@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/hellolib/agent-notify/internal/agenthooks"
 	"github.com/hellolib/agent-notify/internal/config"
-	"github.com/hellolib/agent-notify/internal/notify"
+	"github.com/hellolib/agent-notify/internal/event"
 	"github.com/hellolib/agent-notify/internal/state"
 )
 
@@ -57,19 +58,23 @@ func HandlePreToolUse(ctx context.Context, cfg config.Config, statePath, logPath
 	// 提取工具参数中的关键信息
 	detail := extractToolDetail(p.ToolName, p.ToolInput)
 
-	// 构建通知消息
-	// 使用 input_required 事件，因为 CodeBuddy 在等待用户确认/选择
-	msg := notify.Message{
-		Agent:     "codebuddy",
-		Event:     "input_required",
-		SessionID: p.SessionID,
-		Workspace: p.CWD,
-		Title:     "CodeBuddy " + action,
-		Body:      fmt.Sprintf("工具: %s\n%s", p.ToolName, detail),
+	// 构建统一 Event，使用 PreToolUse HookEvent 标识
+	evt := event.Event{
+		SpecVersion: event.CurrentSpecVersion,
+		EventID:     event.NewEventID(),
+		Agent:       "codebuddy",
+		HookEvent:   "PreToolUse",
+		Status:      event.StatusInputRequired,
+		SessionID:   p.SessionID,
+		Workspace:   p.CWD,
+		Title:       "CodeBuddy " + action,
+		Body:        fmt.Sprintf("工具: %s\n%s", p.ToolName, detail),
+		RawPayload:  json.RawMessage(data),
+		ReceivedAt:  time.Now(),
 	}
 
-	// 发送通知（失败只记日志，不影响工具执行）
-	if err := agenthooks.Dispatch(ctx, cfg, statePath, logPath, msg); err != nil {
+	// 通过状态机分发通知
+	if err := agenthooks.DispatchEvent(ctx, cfg, statePath, logPath, evt); err != nil {
 		_ = state.AppendLog(logPath, fmt.Sprintf("codebuddy pretooluse: dispatch error: %v", err))
 	}
 

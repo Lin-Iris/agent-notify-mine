@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/hellolib/agent-notify/internal/event"
 	"github.com/hellolib/agent-notify/internal/notify"
 )
 
+// payload 描述 Claude Code 通过 stdin 投递的 hook JSON。
 type payload struct {
 	HookEventName string         `json:"hook_event_name"`
 	SessionID     string         `json:"session_id"`
@@ -18,61 +21,68 @@ type payload struct {
 	ToolInput     map[string]any `json:"tool_input"`
 }
 
-func ParseMessage(data []byte) (notify.Message, error) {
+// ── Adapter ────────────────────────────────────────────────
+
+type Adapter struct{}
+
+func (a Adapter) AgentName() string { return "claude_code" }
+
+func (a Adapter) Parse(data []byte) (event.Event, error) {
 	var p payload
 	if err := json.Unmarshal(data, &p); err != nil {
-		return notify.Message{}, err
+		return event.Event{}, err
+	}
+
+	base := event.Event{
+		SpecVersion: event.CurrentSpecVersion,
+		EventID:     event.NewEventID(),
+		Agent:       "claude_code",
+		HookEvent:   p.HookEventName,
+		SessionID:   p.SessionID,
+		Workspace:   p.CWD,
+		RawPayload:  json.RawMessage(data),
+		ReceivedAt:  time.Now(),
 	}
 
 	switch p.HookEventName {
 	case "PermissionRequest":
-		return notify.Message{
-			Agent:     "claude_code",
-			Event:     "permission_required",
-			SessionID: p.SessionID,
-			Workspace: p.CWD,
-			Title:     notify.FormatTitle("claude_code", "permission_required"),
-			Body:      fmt.Sprintf("工具: %s\n操作需要您的授权许可", p.ToolName),
-		}, nil
+		base.Status = event.StatusPermissionReq
+		base.Title = notify.FormatTitle("claude_code", "permission_required")
+		base.Body = fmt.Sprintf("工具: %s\n操作需要您的授权许可", p.ToolName)
+		return base, nil
+
 	case "Notification":
 		if isInputRequiredNotification(p.Message) {
-			// Extract a cleaner hint from the message
 			hint := extractInputHint(p.Message)
-			return notify.Message{
-				Agent:     "claude_code",
-				Event:     "input_required",
-				SessionID: p.SessionID,
-				Workspace: p.CWD,
-				Title:     notify.FormatTitle("claude_code", "input_required"),
-				Body:      fmt.Sprintf("提示: %s", hint),
-			}, nil
+			base.Status = event.StatusInputRequired
+			base.Title = notify.FormatTitle("claude_code", "input_required")
+			base.Body = fmt.Sprintf("提示: %s", hint)
+			return base, nil
 		}
-		return notify.Message{}, fmt.Errorf("unsupported notification message: %s", p.Message)
+		return event.Event{}, fmt.Errorf("unsupported notification message: %s", p.Message)
+
 	case "Stop":
-		return notify.Message{
-			Agent:     "claude_code",
-			Event:     "run_completed",
-			SessionID: p.SessionID,
-			Workspace: p.CWD,
-			Title:     notify.FormatTitle("claude_code", "run_completed"),
-			Body:      notify.DefaultBody("run_completed"),
-		}, nil
+		// Stop 是生命周期信号，不是成功完成。
+		// 状态机根据会话上下文推断最终状态。
+		base.Status = event.StatusPending
+		base.Title = notify.FormatTitle("claude_code", "running")
+		base.Body = notify.DefaultBody("run_completed")
+		return base, nil
+
 	case "PostToolUseFailure":
 		errMsg := extractErrorMessage(p.ToolResponse)
-		return notify.Message{
-			Agent:     "claude_code",
-			Event:     "run_failed",
-			SessionID: p.SessionID,
-			Workspace: p.CWD,
-			Title:     notify.FormatTitle("claude_code", "run_failed"),
-			Body:      fmt.Sprintf("工具: %s\n错误: %s", p.ToolName, errMsg),
-		}, nil
+		base.Status = event.StatusFailed
+		base.Title = notify.FormatTitle("claude_code", "run_failed")
+		base.Body = fmt.Sprintf("工具: %s\n错误: %s", p.ToolName, errMsg)
+		return base, nil
+
 	default:
-		return notify.Message{}, fmt.Errorf("unsupported hook event: %s", p.HookEventName)
+		return event.Event{}, fmt.Errorf("unsupported hook event: %s", p.HookEventName)
 	}
 }
 
-// extractInputHint extracts a cleaner hint from the notification message
+// ── 辅助函数 ──────────────────────────────────────────────
+
 func isInputRequiredNotification(msg string) bool {
 	msg = strings.ToLower(strings.TrimSpace(msg))
 	return strings.Contains(msg, "waiting for your input") ||
@@ -81,10 +91,7 @@ func isInputRequiredNotification(msg string) bool {
 }
 
 func extractInputHint(msg string) string {
-	// Try to extract meaningful content after common prefixes
 	msg = strings.TrimSpace(msg)
-
-	// Remove common prefixes
 	prefixes := []string{
 		"claude is waiting for your input",
 		"waiting for your input: ",
@@ -96,21 +103,16 @@ func extractInputHint(msg string) string {
 			return strings.TrimSpace(msg[len(prefix):])
 		}
 	}
-
-	// If message is too long, truncate it
 	if len(msg) > 100 {
 		return msg[:97] + "..."
 	}
-
 	return msg
 }
 
-// extractErrorMessage extracts error message from tool response
 func extractErrorMessage(response map[string]any) string {
 	if response == nil {
 		return "未知错误"
 	}
-
 	if err, ok := response["error"]; ok {
 		if errStr, ok := err.(string); ok && errStr != "" {
 			if len(errStr) > 200 {
@@ -119,7 +121,6 @@ func extractErrorMessage(response map[string]any) string {
 			return errStr
 		}
 	}
-
 	if err, ok := response["message"]; ok {
 		if errStr, ok := err.(string); ok && errStr != "" {
 			if len(errStr) > 200 {
@@ -128,6 +129,5 @@ func extractErrorMessage(response map[string]any) string {
 			return errStr
 		}
 	}
-
 	return "操作失败"
 }

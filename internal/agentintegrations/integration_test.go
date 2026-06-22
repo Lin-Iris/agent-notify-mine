@@ -197,7 +197,7 @@ func TestCodexIntegration_Install(t *testing.T) {
 		}
 	})
 
-	t.Run("subscribes only to PermissionRequest and Stop", func(t *testing.T) {
+	t.Run("subscribes only to permission_request and stop", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		settingsPath := filepath.Join(tmpDir, "hooks.json")
 
@@ -209,7 +209,7 @@ func TestCodexIntegration_Install(t *testing.T) {
 		content := string(data)
 
 		if !containsAll(content, `"PermissionRequest"`, `"Stop"`) {
-			t.Errorf("hooks.json should register PermissionRequest and Stop, got:\n%s", content)
+			t.Errorf("hooks.json should register permission_request and stop, got:\n%s", content)
 		}
 		// must NOT register events Codex doesn't support
 		for _, unsupported := range []string{`"Notification"`, `"PostToolUseFailure"`} {

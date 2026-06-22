@@ -1,5 +1,5 @@
 {
-  "hook_event_name": "PermissionRequest",
+  "hook_event_name": "permission_request",
   "session_id": "sess-codex-1",
   "transcript_path": null,
   "cwd": "/tmp/demo",

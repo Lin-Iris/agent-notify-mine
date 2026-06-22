@@ -15,8 +15,8 @@ import (
 const hookCommandMarker = "handle-codex-hook"
 
 // managedEvents 是本插件托管的 Codex 事件列表。
-// Codex 当前可靠支持的事件只有 PermissionRequest 与 Stop，
-// 分别对应项目里的 permission_required / run_completed。
+// 注册键必须用 CamelCase，匹配 Codex 官方 hooks API。
+// 实际 Payload 中 hook_event_name 可能为小写，由 Adapter normalizeHookEvent 统一处理。
 var managedEvents = []string{
 	"PermissionRequest",
 	"Stop",

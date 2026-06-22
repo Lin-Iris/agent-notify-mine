@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hellolib/agent-notify/internal/event"
 	"github.com/hellolib/agent-notify/internal/state"
 )
 
@@ -51,4 +52,23 @@ func (d *Dispatcher) SendAll(ctx context.Context, msg Message) error {
 	}
 
 	return errors.New(strings.Join(errs, "; "))
+}
+
+// SendAllFromEvent converts an event.Event to Message and delegates to SendAll.
+// This bridges the new event protocol with the existing notification pipeline.
+func (d *Dispatcher) SendAllFromEvent(ctx context.Context, evt event.Event) error {
+	var rawPayload string
+	if len(evt.RawPayload) > 0 {
+		rawPayload = string(evt.RawPayload)
+	}
+	msg := Message{
+		Agent:      evt.Agent,
+		Event:      event.StatusToEventName(evt.Status),
+		SessionID:  evt.SessionID,
+		Workspace:  evt.Workspace,
+		Title:      evt.Title,
+		Body:       evt.Body,
+		RawPayload: rawPayload,
+	}
+	return d.SendAll(ctx, msg)
 }

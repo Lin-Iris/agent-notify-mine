@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/hellolib/agent-notify/internal/event"
 	"github.com/hellolib/agent-notify/internal/notify"
 )
 
-// CodeBuddy hook 传入的 JSON 结构
+// payload 描述 CodeBuddy hook 传入的 JSON 结构。
 type payload struct {
 	HookEventName string         `json:"hook_event_name"`
 	SessionID     string         `json:"session_id"`
@@ -20,85 +22,81 @@ type payload struct {
 	Matcher       string         `json:"matcher"`
 }
 
-// ParseMessage 解析 CodeBuddy hook 传入的 JSON，转为统一的 Message 格式。
-func ParseMessage(data []byte) (notify.Message, error) {
+// ── Adapter ────────────────────────────────────────────────
+
+type Adapter struct{}
+
+func (a Adapter) AgentName() string { return "codebuddy" }
+
+func (a Adapter) Parse(data []byte) (event.Event, error) {
 	var p payload
 	if err := json.Unmarshal(data, &p); err != nil {
-		return notify.Message{}, err
+		return event.Event{}, err
+	}
+
+	base := event.Event{
+		SpecVersion: event.CurrentSpecVersion,
+		EventID:     event.NewEventID(),
+		Agent:       "codebuddy",
+		HookEvent:   p.HookEventName,
+		SessionID:   p.SessionID,
+		Workspace:   p.CWD,
+		RawPayload:  json.RawMessage(data),
+		ReceivedAt:  time.Now(),
 	}
 
 	switch p.HookEventName {
 	case "Stop":
-		// Stop 在一个对话回合结束时触发。为了避免每个回合都通知，
-		// handler 层会做防抖处理。这里正常返回消息。
-		return notify.Message{
-			Agent:     "codebuddy",
-			Event:     "run_completed",
-			SessionID: p.SessionID,
-			Workspace: p.CWD,
-			Title:     notify.FormatTitle("codebuddy", "run_completed"),
-			Body:      notify.DefaultBody("run_completed"),
-		}, nil
+		// Stop 是生命周期信号，不是成功完成。
+		// 状态机根据会话上下文推断最终状态。
+		base.Status = event.StatusPending
+		base.Title = notify.FormatTitle("codebuddy", "running")
+		base.Body = notify.DefaultBody("run_completed")
+		return base, nil
 
 	case "Notification":
 		switch p.Matcher {
 		case "permission_prompt":
-			return notify.Message{
-				Agent:     "codebuddy",
-				Event:     "permission_required",
-				SessionID: p.SessionID,
-				Workspace: p.CWD,
-				Title:     notify.FormatTitle("codebuddy", "permission_required"),
-				Body:      fmt.Sprintf("工具: %s\n操作需要您的授权许可", p.ToolName),
-			}, nil
+			base.Status = event.StatusPermissionReq
+			base.Title = notify.FormatTitle("codebuddy", "permission_required")
+			base.Body = fmt.Sprintf("工具: %s\n操作需要您的授权许可", p.ToolName)
+			return base, nil
 		case "idle_prompt":
-			return notify.Message{
-				Agent:     "codebuddy",
-				Event:     "input_required",
-				SessionID: p.SessionID,
-				Workspace: p.CWD,
-				Title:     notify.FormatTitle("codebuddy", "input_required"),
-				Body:      "CodeBuddy 空闲超过 60 秒，正在等待你的输入",
-			}, nil
+			base.Status = event.StatusInputRequired
+			base.Title = notify.FormatTitle("codebuddy", "input_required")
+			base.Body = "CodeBuddy 空闲超过 60 秒，正在等待你的输入"
+			return base, nil
 		default:
 			if isInputRequiredMessage(p.Message) {
-				return notify.Message{
-					Agent:     "codebuddy",
-					Event:     "input_required",
-					SessionID: p.SessionID,
-					Workspace: p.CWD,
-					Title:     notify.FormatTitle("codebuddy", "input_required"),
-					Body:      fmt.Sprintf("提示: %s", extractHint(p.Message)),
-				}, nil
+				base.Status = event.StatusInputRequired
+				base.Title = notify.FormatTitle("codebuddy", "input_required")
+				base.Body = fmt.Sprintf("提示: %s", extractHint(p.Message))
+				return base, nil
 			}
-			return notify.Message{}, fmt.Errorf("unsupported notification matcher: %s", p.Matcher)
+			return event.Event{}, fmt.Errorf("unsupported notification matcher: %s", p.Matcher)
 		}
 
 	case "PostToolUseFailure":
+		base.Status = event.StatusFailed
+		base.Title = notify.FormatTitle("codebuddy", "run_failed")
 		errMsg := extractErrorMessage(p.ToolResponse)
-		return notify.Message{
-			Agent:     "codebuddy",
-			Event:     "run_failed",
-			SessionID: p.SessionID,
-			Workspace: p.CWD,
-			Title:     notify.FormatTitle("codebuddy", "run_failed"),
-			Body:      fmt.Sprintf("工具: %s\n错误: %s", p.ToolName, errMsg),
-		}, nil
+		base.Body = fmt.Sprintf("工具: %s\n错误: %s", p.ToolName, errMsg)
+		return base, nil
 
 	case "SessionEnd":
-		return notify.Message{
-			Agent:     "codebuddy",
-			Event:     "run_completed",
-			SessionID: p.SessionID,
-			Workspace: p.CWD,
-			Title:     notify.FormatTitle("codebuddy", "run_completed"),
-			Body:      "CodeBuddy 会话已结束",
-		}, nil
+		// SessionEnd 是会话结束信号，不是成功完成。
+		// 状态机根据会话上下文推断最终状态。
+		base.Status = event.StatusPending
+		base.Title = notify.FormatTitle("codebuddy", "running")
+		base.Body = "CodeBuddy 会话已结束"
+		return base, nil
 
 	default:
-		return notify.Message{}, fmt.Errorf("unsupported hook event: %s", p.HookEventName)
+		return event.Event{}, fmt.Errorf("unsupported hook event: %s", p.HookEventName)
 	}
 }
+
+// ── 辅助函数 ──────────────────────────────────────────────
 
 func isInputRequiredMessage(msg string) bool {
 	msg = strings.ToLower(strings.TrimSpace(msg))

@@ -1,5 +1,5 @@
 {
-  "hook_event_name": "Stop",
+  "hook_event_name": "stop",
   "session_id": "sess-codex-2",
   "transcript_path": null,
   "cwd": "/tmp/demo",

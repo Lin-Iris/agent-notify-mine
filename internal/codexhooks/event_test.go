@@ -5,7 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hellolib/agent-notify/internal/event"
 )
+
+var testAdapter = Adapter{}
 
 func TestParsePermissionRequest(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "codex-hooks", "permission_request.json"))
@@ -13,54 +17,57 @@ func TestParsePermissionRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msg, err := ParseMessage(data)
+	evt, err := testAdapter.Parse(data)
 	if err != nil {
-		t.Fatalf("ParseMessage() error = %v", err)
+		t.Fatalf("Adapter.Parse() error = %v", err)
 	}
-	if msg.Agent != "codex" {
-		t.Fatalf("Agent = %q, want codex", msg.Agent)
+	if evt.Agent != "codex" {
+		t.Fatalf("Agent = %q, want codex", evt.Agent)
 	}
-	if msg.Event != "permission_required" {
-		t.Fatalf("Event = %q, want permission_required", msg.Event)
+	if evt.Status != event.StatusPermissionReq {
+		t.Fatalf("Status = %q, want %q", evt.Status, event.StatusPermissionReq)
 	}
-	if !strings.Contains(msg.Body, "Bash") {
-		t.Fatalf("Body = %q, want tool name Bash", msg.Body)
+	if !strings.Contains(evt.Body, "Bash") {
+		t.Fatalf("Body = %q, want tool name Bash", evt.Body)
 	}
-	if msg.Workspace != "/tmp/demo" {
-		t.Fatalf("Workspace = %q, want /tmp/demo", msg.Workspace)
+	if evt.Workspace != "/tmp/demo" {
+		t.Fatalf("Workspace = %q, want /tmp/demo", evt.Workspace)
 	}
 }
 
-func TestParseStop(t *testing.T) {
+func TestParseStopReturnsPending(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "codex-hooks", "stop.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	msg, err := ParseMessage(data)
+	evt, err := testAdapter.Parse(data)
 	if err != nil {
-		t.Fatalf("ParseMessage() error = %v", err)
+		t.Fatalf("Adapter.Parse() error = %v", err)
 	}
-	if msg.Agent != "codex" {
-		t.Fatalf("Agent = %q, want codex", msg.Agent)
+	if evt.Agent != "codex" {
+		t.Fatalf("Agent = %q, want codex", evt.Agent)
 	}
-	if msg.Event != "run_completed" {
-		t.Fatalf("Event = %q, want run_completed", msg.Event)
+	if evt.HookEvent != "Stop" {
+		t.Fatalf("HookEvent = %q, want Stop", evt.HookEvent)
+	}
+	if evt.Status != event.StatusPending {
+		t.Fatalf("Status = %q, want %q (Stop should not map to completed)", evt.Status, event.StatusPending)
 	}
 	// last_assistant_message 非空时应作为 Body
-	if !strings.Contains(msg.Body, "cargo build") {
-		t.Fatalf("Body = %q, want last_assistant_message content", msg.Body)
+	if !strings.Contains(evt.Body, "cargo build") {
+		t.Fatalf("Body = %q, want last_assistant_message content", evt.Body)
 	}
 }
 
 func TestParseStopFallsBackToDefaultBody(t *testing.T) {
 	raw := []byte(`{"hook_event_name":"Stop","session_id":"s","cwd":"/tmp","last_assistant_message":""}`)
 
-	msg, err := ParseMessage(raw)
+	evt, err := testAdapter.Parse(raw)
 	if err != nil {
-		t.Fatalf("ParseMessage() error = %v", err)
+		t.Fatalf("Adapter.Parse() error = %v", err)
 	}
-	if msg.Body == "" {
+	if evt.Body == "" {
 		t.Fatal("Body should fall back to default when last_assistant_message empty")
 	}
 }
@@ -68,9 +75,20 @@ func TestParseStopFallsBackToDefaultBody(t *testing.T) {
 func TestParseUnsupportedEvent(t *testing.T) {
 	raw := []byte(`{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/tmp"}`)
 
-	_, err := ParseMessage(raw)
+	_, err := testAdapter.Parse(raw)
 	if err == nil {
-		t.Fatal("ParseMessage() expected error for unsupported event")
+		t.Fatal("Adapter.Parse() expected error for unsupported event")
+	}
+}
+
+func TestParseLegacyCamelCaseEvents(t *testing.T) {
+	for _, raw := range []string{
+		`{"hook_event_name":"Stop","session_id":"s"}`,
+		`{"hook_event_name":"PermissionRequest","session_id":"s"}`,
+	} {
+		if _, err := testAdapter.Parse([]byte(raw)); err != nil {
+			t.Fatalf("legacy payload %s should remain supported: %v", raw, err)
+		}
 	}
 }
 

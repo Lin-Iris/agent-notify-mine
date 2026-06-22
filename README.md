@@ -18,11 +18,14 @@
 
 |   通知渠道   | 说明 | 绑定方式    |
 |:--------|------|---------|
-| 🖥️ 系统通知 | 支持 macOS、Linux、Windows 系统通知 |         |
+| 🖥️ 系统通知 | 支持 macOS、Linux、Windows 系统通知 | 无需配置 |
 | <img src="assist/logo/feishu.png" width="24" align="absmiddle"> 飞书   | 支持一键扫码绑定、支持飞书机器人消息推送 | 二维码扫描   |
 | <img src="assist/logo/qiyeweixin.png" width="24" align="absmiddle"> 企业微信  | 支持通过企业微信群机器人 Webhook 推送通知消息 | Webhook |
 | <img src="assist/logo/dingding.png" width="24" align="absmiddle"> 钉钉  | 支持通过钉钉群机器人 Webhook 推送通知消息 | Webhook |
 | <img src="assist/logo/bark.png" width="24" align="absmiddle"> Bark  | 支持通过 Bark Webhook URL 推送到 iOS 设备 | Webhook |
+| 🔔 Server酱 | 通过微信公众号推送通知到微信 | SendKey |
+| 📢 PushPlus | 通过微信公众号推送通知到微信 | Token |
+| 📲 WxPusher | 通过微信公众号推送通知到微信 | AppToken + UID |
 
 
 ### 支持的事件
@@ -49,18 +52,35 @@
 
 ## 快速开始
 
+### 安装
+
 ```bash
-npx agent-notify
+# 1. 下载对应平台的二进制（以 macOS ARM 为例）
+curl -L -o agent-notify.tar.gz \
+  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.9.0/agent-notify-v0.9.0-darwin-arm64.tar.gz
+
+# 2. 解压并安装
+tar xzf agent-notify.tar.gz
+sudo mv agent-notify /usr/local/bin/
+
+# 3. 验证
+agent-notify --help
 ```
 
-首次运行会从 GitHub Releases 下载当前 npm 包版本对应平台的二进制文件，并安装到：
+> 也可以从源码构建：`go build -o /usr/local/bin/agent-notify ./cmd/agent-notify/`
 
-- macOS / Linux: `~/.agent-notify/agent-notify`
-- Windows: `~/.agent-notify/agent-notify.exe`
+### 配置
 
-之后每次运行都会检查本地二进制版本：不存在则自动下载，版本落后则自动更新，否则直接运行。launcher 不会持久修改 PATH，始终用绝对路径执行。
+```bash
+agent-notify init
+```
 
-> **注意**: Codex 通过 `~/.codex/hooks.json` 接入官方 hooks 系统，目前仅订阅 `PermissionRequest`、`Stop` 两个事件。首次安装后请在 codex 内运行 `/hooks` 完成 trust 审核。
+交互式向导会依次询问：
+1. 选择 Agent（Claude Code / Codex / CodeBuddy）
+2. 选择通知渠道（系统通知 / 微信 / 钉钉 / 飞书 / Bark...）
+3. 选择订阅的事件（需要授权 / 等待输入 / 任务完成 / 任务失败）
+
+配置完成后，Agent 每次触发事件都会推送通知到你的手机。
 
 ## 在其他设备上使用
 
@@ -158,21 +178,176 @@ CodeBuddy 推荐事件:
 
 ### 配置通知渠道
 
-每个 Agent 可独立选择推送渠道：
+每个 Agent 可独立选择推送渠道。运行 `agent-notify` 进入交互菜单，选择「消息渠道配置」。
+
+目前支持 **9 个通知渠道**：
+
+| 渠道 | 类型 | 所需凭证 | 平台限制 |
+|------|------|---------|---------|
+| 🖥️ 系统通知 | 本地推送 | 无 | macOS / Linux / Windows |
+| <img src="assist/logo/feishu.png" width="20" align="absmiddle"> 飞书 | 机器人消息 | 飞书 App 扫码绑定 | — |
+| <img src="assist/logo/dingding.png" width="20" align="absmiddle"> 钉钉 | 群机器人 Webhook | Webhook URL | — |
+| <img src="assist/logo/qiyeweixin.png" width="20" align="absmiddle"> 企业微信 | 群机器人 Webhook | Webhook URL | — |
+| <img src="assist/logo/bark.png" width="20" align="absmiddle"> Bark | HTTP API | 推送 URL | iOS |
+| 🔔 Server酱 | 微信服务号推送 | SendKey (SCU...) | 需关注服务号 |
+| 📢 PushPlus | 微信服务号推送 | Token | 需关注服务号 |
+| 📲 WxPusher | 微信服务号推送 | AppToken + UID | 需关注服务号 |
+
+### 各渠道配置步骤
+
+#### 🖥️ 系统通知
+
+无需配置。`agent-notify init` 时默认启用，Agent 事件触发时会在电脑上弹出系统通知。
+
+- macOS：基于 `osascript` 或 `terminal-notifier`
+- Linux：基于 `notify-send`
+- Windows：基于 PowerShell `NotifyIcon`
+
+---
+
+#### 📲 WxPusher（微信推送）
+
+通过微信公众号推送消息到微信。
+
+```bash
+# 交互式配置
+agent-notify
+# → 消息渠道配置 → WxPusher
+```
+
+**获取凭证：**
+
+1. 打开 [WxPusher 官网](https://wxpusher.zjiecode.com/)，微信扫码登录
+2. 创建应用，获取 **AppToken**
+3. 扫码关注你的应用公众号
+4. 在「用户管理」页面找到你的 **UID**
+
+**手动配置**（`~/.agent-notify/config.yaml`）：
+
+```yaml
+notify:
+  codex:
+    channels:
+      wxpusher:
+        enabled: true
+        app_token: AT_xxxxx
+        uid: UID_xxxxx
+```
+
+---
+
+#### 🔔 Server酱（微信推送）
+
+通过微信公众号推送消息到微信。需要 SendKey。
+
+```bash
+# 交互式配置
+agent-notify
+# → 消息渠道配置 → Server酱
+```
+
+**获取凭证：**
+
+1. 打开 [Server酱官网](https://sct.ftqq.com/)，微信扫码登录
+2. 进入「发送消息」页面，复制你的 **SendKey**（以 `SCU` 开头）
+
+---
+
+#### 📢 PushPlus（微信推送）
+
+通过微信公众号推送消息到微信。
+
+```bash
+# 交互式配置
+agent-notify
+# → 消息渠道配置 → PushPlus
+```
+
+**获取凭证：**
+
+1. 打开 [PushPlus 官网](https://www.pushplus.plus/)，微信扫码登录
+2. 进入「发送消息」→「一对一推送」，复制 **Token**
+
+---
+
+#### <img src="assist/logo/feishu.png" width="20" align="absmiddle"> 飞书
+
+支持一键扫码绑定，无需手动填写 Webhook。
 
 ```bash
 agent-notify
-# → 选择「消息渠道配置」
-# → 选择渠道：系统通知 / 飞书 / 企业微信 / 钉钉 / Bark / Server酱 / PushPlus / WxPusher
-# → 按提示输入凭证（Webhook URL / Token / Key 等）
+# → 消息渠道配置 → 飞书
 ```
 
-### 验证配置是否生效
+首次配置会打开浏览器，扫码授权飞书账号即可。
+
+---
+
+#### <img src="assist/logo/dingding.png" width="20" align="absmiddle"> 钉钉
+
+通过群机器人 Webhook 推送通知。
 
 ```bash
-agent-notify doctor        # 查看所有 Agent hook 安装状态
-agent-notify test          # 发送测试通知到手机
+# 交互式配置
+agent-notify
+# → 消息渠道配置 → 钉钉
 ```
+
+**获取 Webhook：**
+
+1. 打开钉钉，创建或进入一个群
+2. 群设置 → 智能群助手 → 添加机器人 → 选择「自定义」
+3. 复制机器人的 **Webhook URL**
+4. 粘贴到配置向导中
+
+---
+
+#### <img src="assist/logo/qiyeweixin.png" width="20" align="absmiddle"> 企业微信
+
+通过群机器人 Webhook 推送通知。
+
+```bash
+# 交互式配置
+agent-notify
+# → 消息渠道配置 → 企业微信
+```
+
+**获取 Webhook：**
+
+1. 企业微信中创建群聊（可拉同事后移出，变成单人通知群）
+2. 群设置 → 群机器人 → 添加机器人 → 新建机器人
+3. 复制 **Webhook URL**（格式：`https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx`）
+4. 粘贴到配置向导中
+
+---
+
+#### <img src="assist/logo/bark.png" width="20" align="absmiddle"> Bark（iOS 推送）
+
+推送到 iPhone。需要安装 Bark App。
+
+```bash
+# 交互式配置
+agent-notify
+# → 消息渠道配置 → Bark
+```
+
+**获取推送 URL：**
+
+1. iPhone 上安装 [Bark App](https://apps.apple.com/app/bark/id1403753865)
+2. 打开 App，复制推送 URL（格式：`https://api.day.app/你的Key`）
+3. 粘贴到配置向导中
+
+---
+
+### 验证配置
+
+配置完成后，发送测试通知确认：
+
+```bash
+agent-notify test
+```
+
+选择对应渠道，手机会收到测试消息。
 
 
 ## 配置说明
@@ -183,22 +358,6 @@ agent-notify 自身配置位于 `~/.agent-notify/config.yaml`。Agent 集成配�
 
 - Claude Code: `~/.claude/settings.json`（写入 hooks → 命令 `agent-notify handle-claude-hook`）
 - Codex: `~/.codex/hooks.json`（写入 hooks → 命令 `agent-notify handle-codex-hook`，需在 codex 内运行 `/hooks` 完成 trust）
-
-### 企业微信机器人绑定小技巧
-
-1. **创建单人通知群**：在企业微信中发起群聊（随便拉几个同事），创建成功后**不要在群里发言**，直接将其他人移出，此时该群将变成你的单人通知群；
-2. **添加机器人**：「群设置」->「消息推送」->「添加」-> 「自定义消息推送」，命名并保存；
-3. **获取 Webhook 地址**：复制生成的地址，格式类似 `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx`；
-4. **绑定配置**：运行 `npx agent-notify`，在配置向导中选择启用企业微信渠道，粘贴 Webhook URL 即可；
-> 旧版企业微信添加机器人步骤：「群设置」->「群机器人」->「添加机器人」-> 「新建机器人」，命名并保存
-
-### Bark 配置说明
-
-1. **复制 Bark URL**：在 Bark App 内复制测试 URL，例如 `https://api.day.app/<key>/这里改成你自己的推送内容`；
-2. **绑定配置**：运行 `npx agent-notify`，进入「消息渠道配置」->「初始化 Bark」，粘贴 Bark URL 即可；
-3. **Codex 任务完成通知**：在配置文件 `~/.agent-notify/config.yaml` 中保留 Codex 的 `run_completed` 事件，并启用 `notify.codex.channels.bark`。
-
-Bark URL 会作为本地配置保存，发送时使用 Bark 的 POST JSON 参数 `title` 和 `body`。
 
 ## 工作流程
 

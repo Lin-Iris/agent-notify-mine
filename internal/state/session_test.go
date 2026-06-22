@@ -140,15 +140,15 @@ func TestStopAfterPermissionNotifiesOnce(t *testing.T) {
 		t.Fatalf("Status = %q, want %q", stopDecision.Status, event.StatusCompleted)
 	}
 
-	// Third Stop — should suppress duplicate
+		// Third Stop — 状态机不阻止，由 dispatcher 时间窗口去重
 	dupStop := stop
 	dupStop.EventID = event.NewEventID()
 	dupDecision, err := adv.Advance(dupStop)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dupDecision.Notify {
-		t.Fatal("duplicate Stop should NOT notify")
+	if !dupDecision.Notify {
+			t.Fatal("duplicate Stop should notify (delegate dedup to dispatcher)")
 	}
 }
 

@@ -165,7 +165,7 @@ func Default() Config {
 			},
 		},
 		Behavior: BehaviorConfig{
-			DedupeSeconds:      60,
+			DedupeSeconds:      10,
 			SendTimeoutSeconds: 5,
 			Locale:             "zh-CN",
 		},

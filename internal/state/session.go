@@ -277,14 +277,8 @@ func (a *Advancer) handleStop(rec *SessionRecord) AdvanceDecision {
 			Reason: "idle stop, no events seen this session",
 		}
 	}
-	if rec.Notified {
-		// Already notified terminal status — suppress duplicate
-		return AdvanceDecision{
-			Notify: false,
-			Status: event.StatusCompleted,
-			Reason: "session already notified",
-		}
-	}
+	// 不检查 Notified——让 dispatcher 的原始时间窗口去重。
+	// 这样同一会话中多个任务都能触发生成通知。
 	rec.Status = SessCompleted
 	rec.Notified = true
 	return AdvanceDecision{
@@ -302,13 +296,7 @@ func (a *Advancer) handleSessionEnd(rec *SessionRecord) AdvanceDecision {
 			Reason: "session ended with no activity",
 		}
 	}
-	if rec.Notified {
-		return AdvanceDecision{
-			Notify: false,
-			Status: event.StatusCompleted,
-			Reason: "session already notified",
-		}
-	}
+	// 同 handleStop：由 dispatcher 时间窗口去重
 	rec.Status = SessCompleted
 	rec.Notified = true
 	return AdvanceDecision{

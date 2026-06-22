@@ -109,6 +109,98 @@ Bark URL 会作为本地配置保存，发送时使用 Bark 的 POST JSON 参数
 
 Thanks for the support and feedback from the friends at [LINUX DO](https://linux.do/).
 
+## 项目架构
+
+```
+外部 Agent (Claude Code / Codex / CodeBuddy)
+  │  触发 Hook
+  ▼
+agent-notify handle-xxx-hook < JSON (stdin)
+  │
+  ▼
+┌─ Adapter 层 ───────────────────────┐
+│  claudehooks/  │  codexhooks/     │  原始 Hook JSON → 统一 Event
+│  codebuddyhooks/                   │  含大小写兼容、字段兼容
+└──────────┬────────────────────────┘
+           ▼
+┌─ Event Protocol ───────────────────┐
+│  internal/event/                   │  spec_version, event_id,
+│  Event struct + Adapter 接口      │  status, raw_payload
+└──────────┬────────────────────────┘
+           ▼
+┌─ State Machine ────────────────────┐
+│  internal/state/session.go         │  状态推断:
+│  Advancer.Advance()               │  NEW → ACTIVE → COMPLETED/FAILED
+│                                   │  Stop(Codex) → 默认完成
+│                                   │  Stop(Claude idle) → 不通知
+└──────────┬────────────────────────┘
+           ▼
+┌─ Dispatch ─────────────────────────┐
+│  agenthooks/dispatch.go           │  buildSenders → 按 Agent+事件筛选
+│  DispatchEvent()                  │
+└──────────┬────────────────────────┘
+           ▼
+┌─ Notification ─────────────────────┐
+│  notify/dispatcher.go             │  去重(10s窗口) + 并发推送
+│  Sender 接口 × 9 种实现          │
+│  → bark/feishu/dingtalk/         │
+│    wxpusher/serverchan/          │
+│    pushplus/wechatwork/          │
+│    macos/linux/windows           │
+└──────────────────────────────────┘
+```
+
+### 核心数据结构
+
+```
+event.Event                     notify.Message             SessionRecord
+┌─────────────────┐            ┌────────────────┐         ┌────────────────┐
+│ spec_version    │            │ Agent          │         │ session_id     │
+│ event_id        │            │ Event          │         │ agent          │
+│ agent           │ ──→        │ SessionID      │         │ status         │
+│ hook_event      │ bridge     │ Workspace      │         │ has_run_event  │
+│ status          │            │ Title          │         │ notified       │
+│ session_id      │            │ Body           │         │ started_at     │
+│ workspace       │            │ RawPayload     │         │ updated_at     │
+│ title/body      │            └────────────────┘         └────────────────┘
+│ raw_payload     │
+│ received_at     │
+└─────────────────┘
+```
+
+## 性能影响
+
+| 方面 | 说明 |
+|------|------|
+| **CPU** | Hook 触发时进程运行 ~0.5-3s 即退出。无常驻进程 |
+| **内存** | Go 二进制 ~32MB 磁盘，运行时峰值 ~10-15MB RSS |
+| **网络** | 每次事件发 1-2 个 HTTPS POST |
+| **启动时间** | Go 冷启动 ~50ms |
+| **磁盘** | 配置 <1KB，状态 <10KB，日志可增长（建议定期清理） |
+
+**不是常驻服务。** 只在 hook 触发时短暂执行，对电脑性能无感知影响。
+
+## 卸载指南
+
+```bash
+# 1. 删除二进制
+rm /usr/local/bin/agent-notify
+
+# 2. 删除配置和状态
+rm -rf ~/.agent-notify
+
+# 3. 清理各 Agent 的 Hook 配置
+rm ~/.claude/settings.json          # Claude Code
+rm ~/.codex/hooks.json              # Codex
+rm ~/.codebuddy/settings.json       # CodeBuddy
+
+# 4. VS Code 扩展：在扩展面板搜索 "agent-notify" → 卸载
+```
+
+> ⚠️ `~/.claude/settings.json` 和 `~/.codebuddy/settings.json` 可能包含手动添加的其他配置。
+> 如果还有别的设置，不要直接删文件，而是手动删除里面的 `hooks` 块。
+> 更安全的做法：运行 `agent-notify doctor` 查看哪些文件被修改过，选择性地清理。
+
 
 ## ❤️ 赞助
 

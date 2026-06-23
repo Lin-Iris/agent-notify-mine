@@ -114,6 +114,16 @@ agent-notify init
 
 配置完成后，Agent 每次触发事件都会推送通知到你的手机。
 
+> `agent-notify init` 会自动检测你安装的 Agent：
+> - `claude` 命令 → Claude Code CLI
+> - VS Code 扩展中的 Claude Code
+> - `codex` 命令 → Codex CLI
+> - `/Applications/Codex.app` → Codex.app GUI
+> - `codebuddy` 命令 → CodeBuddy CLI
+> - `~/.codebuddy/settings.json` → CodeBuddy IDE 扩展
+>
+> 就算没有命令行版 CLI，也能正确配置 hooks。配置后需在 Agent 内运行 `/hooks` 完成信任审核。
+
 ## 在其他设备上使用
 
 ### 方式一：从源码构建（推荐）
@@ -168,6 +178,8 @@ agent-notify
 # 测试通知是否正常
 agent-notify test
 ```
+
+`agent-notify init` 会自动检测本机安装的 Agent（Claude Code CLI / VS Code 扩展、Codex CLI / Codex.app、CodeBuddy IDE 扩展 / CLI），即使没有命令行工具也能正常配置 hooks。
 
 ## 支持的 Agent
 

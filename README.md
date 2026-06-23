@@ -790,37 +790,32 @@ event.Event                     notify.Message             SessionRecord
 
 ## 卸载指南
 
-### 推荐方式（安全清理）
+### `agent-notify clean` 清理内容
+
+| 清理项 | 是否删除 |
+|--------|:-------:|
+| `~/.agent-notify/config.yaml`（通知渠道凭证、事件订阅） | ✅ 删 |
+| `~/.agent-notify/state.json`（去重状态） | ✅ 删 |
+| `~/.agent-notify/agent-notify.log`（日志） | ✅ 删 |
+| Claude Code hooks（`~/.claude/settings.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
+| Codex hooks（`~/.codex/hooks.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
+| CodeBuddy hooks（`~/.codebuddy/settings.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
+| **二进制本身**（`/usr/local/bin/agent-notify`） | ❌ 不删 |
+| **VS Code 扩展** | ❌ 不删 |
+
+### 彻底卸载
 
 ```bash
-# 自动清理 agent-notify 配置和各 Agent 的 hooks 条目
+# 1. 清理配置和 hooks
 agent-notify clean
 
-# 删除二进制
-rm /usr/local/bin/agent-notify
-```
-
-### 手动方式
-
-```bash
-# 1. 删除二进制
+# 2. 删二进制
 rm /usr/local/bin/agent-notify
 
-# 2. 删除配置和状态
-rm -rf ~/.agent-notify
-
-# 3. 清理各 Agent 的 Hook 配置（只删除 agent-notify 写入的条目）
-# 编辑配置文件，删除 "hooks" 块中 command 包含 handle-xxx-hook 的条目：
-#   ~/.claude/settings.json         marker: handle-claude-hook
-#   ~/.codex/hooks.json             marker: handle-codex-hook
-#   ~/.codebuddy/settings.json      marker: handle-codebuddy-hook
-# ⚠️ 不要直接删这些文件！里面可能有其他重要配置
-
-# 4. 重新启动 Agent 让配置生效
+# 3. VS Code 扩展：扩展面板搜索 agent-notify → 卸载
 ```
 
-> ⚠️ **不要直接删除 `~/.claude/settings.json` 或 `~/.codebuddy/settings.json`**，它们可能包含模型配置、环境变量、权限设置等其他重要配置。
-> 运行 `agent-notify clean` 只会删除 agent-notify 写入的 hooks 条目，保留你的其他配置。
+> ⚠️ `clean` 只删除 agent-notify 写入的 hooks 条目，`~/.claude/settings.json` 和 `~/.codebuddy/settings.json` 中的其他配置（模型、环境变量等）不受影响。
 
 
 ## ❤️ 赞助

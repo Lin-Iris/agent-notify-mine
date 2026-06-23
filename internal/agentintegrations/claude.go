@@ -23,10 +23,31 @@ func (c *ClaudeIntegration) Name() string {
 	return "Claude Code"
 }
 
-// DetectInstalled checks if the claude CLI is installed.
+// DetectInstalled checks if Claude Code is available in any form:
+// CLI binary, VS Code extension, or existing settings.json.
 func (c *ClaudeIntegration) DetectInstalled() bool {
-	_, err := exec.LookPath("claude")
-	return err == nil
+	// 1. CLI binary in PATH (standalone install)
+	if _, err := exec.LookPath("claude"); err == nil {
+		return true
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+
+	// 2. settings.json exists (shared between CLI and VS Code extension)
+	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); err == nil {
+		return true
+	}
+
+	// 3. VS Code extension directory
+	matches, _ := filepath.Glob(filepath.Join(home, ".vscode", "extensions", "anthropic.claude-code-*"))
+	if len(matches) > 0 {
+		return true
+	}
+
+	return false
 }
 
 // SettingsPath returns the path to Claude Code's settings.json file.

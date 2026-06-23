@@ -23,10 +23,41 @@ func (c *CodexIntegration) Name() string {
 	return "Codex"
 }
 
-// DetectInstalled checks if the codex CLI is installed.
+// DetectInstalled checks if Codex is available in any form:
+// CLI binary, Codex.app GUI, or existing config directory.
 func (c *CodexIntegration) DetectInstalled() bool {
-	_, err := exec.LookPath("codex")
-	return err == nil
+	// 1. CLI binary in PATH
+	if _, err := exec.LookPath("codex"); err == nil {
+		return true
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+
+	// 2. Codex.app GUI (macOS)
+	appPaths := []string{
+		"/Applications/Codex.app",
+		filepath.Join(home, "Applications", "Codex.app"),
+	}
+	for _, p := range appPaths {
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			return true
+		}
+	}
+
+	// 3. 配置目录存在（hooks.json 或 config.toml 任一个）
+	codexDir := filepath.Join(home, ".codex")
+	if fi, err := os.Stat(codexDir); err == nil && fi.IsDir() {
+		for _, name := range []string{"hooks.json", "config.toml"} {
+			if _, err := os.Stat(filepath.Join(codexDir, name)); err == nil {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // SettingsPath returns the path to Codex's hooks.json file.

@@ -15,18 +15,43 @@ func TestBuildHookSettings(t *testing.T) {
 		t.Fatalf("hooks type = %T, want map[string]any", got["hooks"])
 	}
 
-	events := []string{"PermissionRequest", "Notification", "Stop", "PostToolUseFailure"}
-	for _, event := range events {
-		items, ok := hooks[event].([]map[string]any)
+	// 验证所有托管事件都存在
+	for _, evt := range managedEvents {
+		items, ok := hooks[evt.EventKey].([]any)
 		if !ok || len(items) != 1 {
-			t.Fatalf("%s hooks missing or invalid", event)
+			t.Fatalf("%s entries missing or invalid: %T %v", evt.EventKey, hooks[evt.EventKey], hooks[evt.EventKey])
 		}
-		entryHooks, ok := items[0]["hooks"].([]map[string]any)
-		if !ok || len(entryHooks) != 1 {
-			t.Fatalf("%s command hooks missing or invalid", event)
+		entry, ok := items[0].(map[string]any)
+		if !ok {
+			t.Fatalf("%s entry type = %T, want map[string]any", evt.EventKey, items[0])
 		}
-		if entryHooks[0]["command"] != "/tmp/agent-notify handle-claude-hook" {
-			t.Fatalf("%s command = %v, want /tmp/agent-notify handle-claude-hook", event, entryHooks[0]["command"])
+
+		// 验证 matcher
+		if evt.HasMatcher {
+			matcher, has := entry["matcher"]
+			if !has || matcher != "" {
+				t.Fatalf("%s matcher = %v, want \"\"", evt.EventKey, matcher)
+			}
+		} else {
+			if _, has := entry["matcher"]; has {
+				t.Fatalf("%s should not have matcher", evt.EventKey)
+			}
+		}
+
+		// 验证 hooks 数组
+		innerHooks, ok := entry["hooks"].([]any)
+		if !ok || len(innerHooks) != 1 {
+			t.Fatalf("%s hooks missing or invalid", evt.EventKey)
+		}
+		cmdHook, ok := innerHooks[0].(map[string]any)
+		if !ok {
+			t.Fatalf("%s inner hook type = %T, want map[string]any", evt.EventKey, innerHooks[0])
+		}
+
+		wantCmd := "/tmp/agent-notify handle-claude-hook " + evt.SubCommand
+		gotCmd, has := cmdHook["command"]
+		if !has || gotCmd != wantCmd {
+			t.Fatalf("%s command = %v, want %s", evt.EventKey, gotCmd, wantCmd)
 		}
 	}
 }
@@ -114,7 +139,7 @@ func TestInstallIdempotent(t *testing.T) {
 	got := readSettingsForTest(t, path)
 	hooks := got["hooks"].(map[string]any)
 	for _, event := range managedEvents {
-		entries := hooks[event].([]any)
+		entries := hooks[event.EventKey].([]any)
 		marked := 0
 		for _, e := range entries {
 			entryMap := e.(map[string]any)
@@ -125,7 +150,7 @@ func TestInstallIdempotent(t *testing.T) {
 			}
 		}
 		if marked != 1 {
-			t.Fatalf("%s has %d agent-notify hooks after re-install, want 1", event, marked)
+			t.Fatalf("%s has %d agent-notify hooks after re-install, want 1", event.EventKey, marked)
 		}
 	}
 }

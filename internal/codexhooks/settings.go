@@ -17,33 +17,40 @@ const hookCommandMarker = "handle-codex-hook"
 // managedEvents 是本插件托管的 Codex 事件列表。
 // 注册键必须用 CamelCase，匹配 Codex 官方 hooks API。
 // 实际 Payload 中 hook_event_name 可能为小写，由 Adapter normalizeHookEvent 统一处理。
-var managedEvents = []string{
-	"PermissionRequest",
-	"Stop",
+type eventMeta struct {
+	EventKey   string
+	SubCommand string
+	HasMatcher bool
+}
+
+var managedEvents = []eventMeta{
+	{EventKey: "PermissionRequest", SubCommand: "permission_required", HasMatcher: true},
+	{EventKey: "Stop",              SubCommand: "run_completed",      HasMatcher: false},
 }
 
 // BuildHookSettings 生成 Codex hooks.json 所需的 settings 结构。
 func BuildHookSettings(binaryPath string) map[string]any {
 	binaryPath = common.ResolveBinaryPath(binaryPath)
-	command := binaryPath + " " + hookCommandMarker
+	hooks := map[string]any{}
 
-	buildEntry := func() []map[string]any {
-		return []map[string]any{
-			{
-				"hooks": []map[string]any{
-					{
-						"type":    "command",
-						"command": command,
-					},
+	for _, evt := range managedEvents {
+		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
+
+		entry := map[string]any{
+			"hooks": []any{
+				map[string]any{
+					"type":    "command",
+					"command": command,
 				},
 			},
 		}
+		if evt.HasMatcher {
+			entry["matcher"] = ""
+		}
+
+		hooks[evt.EventKey] = []any{entry}
 	}
 
-	hooks := map[string]any{}
-	for _, event := range managedEvents {
-		hooks[event] = buildEntry()
-	}
 	return map[string]any{"hooks": hooks}
 }
 
@@ -56,27 +63,33 @@ func Install(path string, binaryPath string) error {
 	}
 
 	binaryPath = common.ResolveBinaryPath(binaryPath)
-	command := binaryPath + " " + hookCommandMarker
 
 	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
 
-	for _, event := range managedEvents {
-		if eventHasManagedHook(hooks, event) {
+	for _, evt := range managedEvents {
+		if eventHasManagedHook(hooks, evt.EventKey) {
 			continue
 		}
-		entries := toAnySlice(hooks[event])
-		entries = append(entries, map[string]any{
+
+		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
+		entry := map[string]any{
 			"hooks": []any{
 				map[string]any{
 					"type":    "command",
 					"command": command,
 				},
 			},
-		})
-		hooks[event] = entries
+		}
+		if evt.HasMatcher {
+			entry["matcher"] = ""
+		}
+
+		entries := toAnySlice(hooks[evt.EventKey])
+		entries = append(entries, entry)
+		hooks[evt.EventKey] = entries
 	}
 	settings["hooks"] = hooks
 
@@ -115,8 +128,8 @@ func IsInstalled(path string) (bool, error) {
 		return false, nil
 	}
 
-	for _, event := range managedEvents {
-		if eventHasManagedHook(hooks, event) {
+	for _, evt := range managedEvents {
+		if eventHasManagedHook(hooks, evt.EventKey) {
 			return true, nil
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"slices"
 
 	"github.com/hellolib/agent-notify/internal/common"
@@ -69,21 +70,37 @@ func (s *Service) selectAgent(prompter Prompter, cfg config.Config) (string, err
 	return prompter.Select("选择要配置的 Agent", agentOptions, defaultAgent)
 }
 
+func isCLIInstalled(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
 func (s *Service) agentOptions(cfg config.Config) ([]PromptOption, string) {
 	var options []PromptOption
 	var defaultAgent string
+
 	if s.claudeIntegration.DetectInstalled() {
-		options = append(options, PromptOption{Label: "Claude Code", Value: agentClaude})
+		label := "Claude Code"
+		if !isCLIInstalled("claude") {
+			label = "Claude Code (VS Code 扩展)"
+		}
+		options = append(options, PromptOption{Label: label, Value: agentClaude})
 		if cfg.Agent.ClaudeCode.Enabled {
 			defaultAgent = agentClaude
 		}
 	}
+
 	if s.codexIntegration.DetectInstalled() {
-		options = append(options, PromptOption{Label: "Codex", Value: agentCodex})
+		label := "Codex"
+		if !isCLIInstalled("codex") {
+			label = "Codex (Codex.app)"
+		}
+		options = append(options, PromptOption{Label: label, Value: agentCodex})
 		if cfg.Agent.Codex.Enabled && defaultAgent == "" {
 			defaultAgent = agentCodex
 		}
 	}
+
 	return options, defaultAgent
 }
 

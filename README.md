@@ -54,6 +54,8 @@
 
 ### 安装
 
+#### 公共仓库
+
 ```bash
 # 1. 下载对应平台的二进制（以 macOS ARM 为例）
 curl -L -o agent-notify.tar.gz \
@@ -61,13 +63,43 @@ curl -L -o agent-notify.tar.gz \
 
 # 2. 解压并安装
 tar xzf agent-notify.tar.gz
-sudo mv agent-notify /usr/local/bin/
+sudo mv agent-notify-* /usr/local/bin/agent-notify
 
 # 3. 验证
 agent-notify --help
 ```
 
-> 也可以从源码构建：`go build -o /usr/local/bin/agent-notify ./cmd/agent-notify/`
+> 解压后得到的文件名为 `agent-notify-v0.9.0-darwin-arm64`（带版本号和平台名），`mv` 时重命名为 `agent-notify`。
+
+#### 私有仓库
+
+```bash
+# 方式 1: 使用 gh CLI（推荐）
+gh release download v0.9.0 --repo Lin-Iris/agent-notify-mine -p "*-darwin-arm64.tar.gz"
+tar xzf agent-notify-*.tar.gz
+sudo mv agent-notify-* /usr/local/bin/agent-notify
+
+# 方式 2: curl 带 GitHub Token
+curl -L -H "Authorization: token YOUR_GITHUB_TOKEN" -o agent-notify.tar.gz \
+  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.9.0/agent-notify-v0.9.0-darwin-arm64.tar.gz
+tar xzf agent-notify.tar.gz
+sudo mv agent-notify-* /usr/local/bin/agent-notify
+
+# 方式 3: 浏览器下载
+# 1. 打开 https://github.com/Lin-Iris/agent-notify-mine/releases
+# 2. 下载 *.tar.gz 文件
+# 3. tar xzf agent-notify-*.tar.gz
+# 4. sudo mv agent-notify-* /usr/local/bin/agent-notify
+```
+
+#### 从源码构建
+
+```bash
+git clone https://github.com/Lin-Iris/agent-notify-mine.git
+cd agent-notify-mine/agent-notify-go
+go build -o /usr/local/bin/agent-notify ./cmd/agent-notify/
+agent-notify --help
+```
 
 ### 配置
 
@@ -176,6 +208,127 @@ CodeBuddy 推荐事件:
   └─ run_failed           ← 工具执行失败时通知
 ```
 
+### Hooks 配置格式
+
+`agent-notify init` 会自动写入正确的 hooks 配置。以下是配置文件的实际 JSON 格式，供手动排查时参考。
+
+#### Claude Code（`~/.claude/settings.json`）
+
+在 VS Code 扩展和命令行版 Claude Code 中格式一致。
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-claude-hook permission_required"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-claude-hook input_required"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-claude-hook run_completed"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-claude-hook run_failed"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+> `Stop` 事件官方不支持 `matcher` 字段，始终触发。其他事件都设 `"matcher": ""` 表示匹配全部。
+
+#### Codex（`~/.codex/hooks.json`）
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-codex-hook permission_required"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-codex-hook run_completed"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+> Codex 的 `~/.codex/config.toml` 中还需要启用 hooks 功能。`agent-notify init` 会自动写入：
+> ```toml
+> [features]
+> hooks = true
+> ```
+
+---
+
+### VS Code 扩展 / Codex.app 支持
+
+`agent-notify init` 与 `agent-notify doctor` 现在支持检测以下安装方式：
+
+| Agent | 检测方式 |
+|-------|---------|
+| Claude Code CLI | `claude` 命令在 PATH 中 |
+| Claude Code VS Code 扩展 | `~/.claude/settings.json` 存在或 VS Code 扩展目录签名 |
+| Codex CLI | `codex` 命令在 PATH 中 |
+| Codex.app | `/Applications/Codex.app` 或 `~/Applications/Codex.app` 存在 |
+| Codex（已配置） | `~/.codex/hooks.json` 或 `~/.codex/config.toml` 存在 |
+
+即使没有命令行版 CLI，你也可以正常配置 hooks：
+
+```bash
+agent-notify init
+# → 会显示 "Claude Code (VS Code 扩展)" 或 "Codex (Codex.app)"
+```
+
+配置完成后，在 Agent 内运行 `/hooks` 确认 hooks 已被加载并信任。
+
+---
+
 ### 各 Agent 配置详情
 
 #### Claude Code
@@ -225,6 +378,8 @@ notify:
 | 支持事件 | `permission_required` / `run_completed` |
 | 通知渠道示例 | WxPusher |
 | 额外步骤 | 安装后需在 Codex 内运行 `/hooks` 信任 |
+
+> 注意：Codex 需要在 `~/.codex/config.toml` 中启用 hooks 功能。`agent-notify init` 会自动写入，无需手动操作。
 
 <details>
 <summary>点击展开 Codex 通知配置示例</summary>
@@ -562,6 +717,18 @@ event.Event                     notify.Message             SessionRecord
 
 ## 卸载指南
 
+### 推荐方式（安全清理）
+
+```bash
+# 自动清理 agent-notify 配置和各 Agent 的 hooks 条目
+agent-notify clean
+
+# 删除二进制
+rm /usr/local/bin/agent-notify
+```
+
+### 手动方式
+
 ```bash
 # 1. 删除二进制
 rm /usr/local/bin/agent-notify
@@ -569,17 +736,17 @@ rm /usr/local/bin/agent-notify
 # 2. 删除配置和状态
 rm -rf ~/.agent-notify
 
-# 3. 清理各 Agent 的 Hook 配置
-rm ~/.claude/settings.json          # Claude Code
-rm ~/.codex/hooks.json              # Codex
-rm ~/.codebuddy/settings.json       # CodeBuddy
+# 3. 清理各 Agent 的 Hook 配置（只删除 agent-notify 写入的条目）
+# 编辑配置文件，删除 "hooks" 块中 command 包含 handle-claude-hook / handle-codex-hook 的条目
+# ~/.claude/settings.json    ← 不要直接删文件！里面可能有其他设置
+# ~/.codex/hooks.json
+# ~/.codebuddy/settings.json ← 同上，不要直接删文件
 
 # 4. VS Code 扩展：在扩展面板搜索 "agent-notify" → 卸载
 ```
 
-> ⚠️ `~/.claude/settings.json` 和 `~/.codebuddy/settings.json` 可能包含手动添加的其他配置。
-> 如果还有别的设置，不要直接删文件，而是手动删除里面的 `hooks` 块。
-> 更安全的做法：运行 `agent-notify doctor` 查看哪些文件被修改过，选择性地清理。
+> ⚠️ **不要直接删除 `~/.claude/settings.json` 或 `~/.codebuddy/settings.json`**，它们可能包含模型配置、环境变量、权限设置等其他重要配置。
+> 运行 `agent-notify clean` 只会删除 agent-notify 写入的 hooks 条目，保留你的其他配置。
 
 
 ## ❤️ 赞助

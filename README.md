@@ -810,12 +810,13 @@ rm /usr/local/bin/agent-notify
 rm -rf ~/.agent-notify
 
 # 3. 清理各 Agent 的 Hook 配置（只删除 agent-notify 写入的条目）
-# 编辑配置文件，删除 "hooks" 块中 command 包含 handle-claude-hook / handle-codex-hook 的条目
-# ~/.claude/settings.json    ← 不要直接删文件！里面可能有其他设置
-# ~/.codex/hooks.json
-# ~/.codebuddy/settings.json ← 同上，不要直接删文件
+# 编辑配置文件，删除 "hooks" 块中 command 包含 handle-xxx-hook 的条目：
+#   ~/.claude/settings.json         marker: handle-claude-hook
+#   ~/.codex/hooks.json             marker: handle-codex-hook
+#   ~/.codebuddy/settings.json      marker: handle-codebuddy-hook
+# ⚠️ 不要直接删这些文件！里面可能有其他重要配置
 
-# 4. VS Code 扩展：在扩展面板搜索 "agent-notify" → 卸载
+# 4. 重新启动 Agent 让配置生效
 ```
 
 > ⚠️ **不要直接删除 `~/.claude/settings.json` 或 `~/.codebuddy/settings.json`**，它们可能包含模型配置、环境变量、权限设置等其他重要配置。

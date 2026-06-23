@@ -207,7 +207,7 @@ func (a *Advancer) applyEvent(evt event.Event, rec *SessionRecord) AdvanceDecisi
 	case "Stop":
 		// Codex 只发 Stop 作为完成信号，无其他前置事件。
 		// 对 Codex 来说，Stop 本身就表示"做了工作"。
-		if evt.Agent == "codex" {
+		if evt.Agent == "codex" || evt.Agent == "codebuddy" {
 			rec.HasRunEvent = true
 		}
 		return a.handleStop(rec)

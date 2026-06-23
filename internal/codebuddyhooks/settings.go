@@ -16,57 +16,57 @@ const preToolUseCommandMarker = "handle-codebuddy-pretooluse"
 // preToolUseMatcher 匹配需要通知的高风险工具
 const preToolUseMatcher = "execute_command|write_to_file|delete_file|create_file|ask_followup_question|edit_and_apply|edit"
 
-// CodeBuddy 托管的 hook 事件列表
-var managedEvents = []string{
-	"Stop",
-	"Notification",
-	"PostToolUseFailure",
-	"SessionEnd",
-	"PreToolUse",
+type eventMeta struct {
+	EventKey   string
+	SubCommand string
+	HasMatcher bool
+}
+
+// managedEvents 是标准 hook 事件（PreToolUse 有特殊逻辑，单独处理）
+var managedEvents = []eventMeta{
+	{EventKey: "PermissionRequest",  SubCommand: "permission_required", HasMatcher: true},
+	{EventKey: "Notification",       SubCommand: "input_required",     HasMatcher: false},
+	{EventKey: "Stop",               SubCommand: "run_completed",      HasMatcher: false},
+	{EventKey: "PostToolUseFailure", SubCommand: "run_failed",         HasMatcher: false},
+	{EventKey: "SessionEnd",         SubCommand: "run_completed",      HasMatcher: false},
+}
+
+// preToolUseEntry 生成 PreToolUse hook 条目（含 matcher + timeout）
+func preToolUseEntry(binaryPath string) map[string]any {
+	return map[string]any{
+		"matcher": preToolUseMatcher,
+		"hooks": []any{
+			map[string]any{
+				"type":    "command",
+				"command": binaryPath + " " + preToolUseCommandMarker,
+				"timeout": 10,
+			},
+		},
+	}
 }
 
 // BuildHookSettings 构建 CodeBuddy settings.json 中的 hooks 配置。
 func BuildHookSettings(binaryPath string) map[string]any {
 	binaryPath = common.ResolveBinaryPath(binaryPath)
-	command := binaryPath + " " + hookCommandMarker
-	preToolUseCommand := binaryPath + " " + preToolUseCommandMarker
-
-	makeEntry := func() []map[string]any {
-		return []map[string]any{
-			{
-				"hooks": []map[string]any{
-					{
-						"type":    "command",
-						"command": command,
-					},
-				},
-			},
-		}
-	}
-
-	makePreToolUseEntry := func() []map[string]any {
-		return []map[string]any{
-			{
-				"matcher": preToolUseMatcher,
-				"hooks": []map[string]any{
-					{
-						"type":    "command",
-						"command": preToolUseCommand,
-						"timeout": 10,
-					},
-				},
-			},
-		}
-	}
-
 	hooks := map[string]any{}
-	for _, name := range managedEvents {
-		if name == "PreToolUse" {
-			hooks[name] = makePreToolUseEntry()
-		} else {
-			hooks[name] = makeEntry()
+
+	for _, evt := range managedEvents {
+		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
+		entry := map[string]any{
+			"hooks": []any{
+				map[string]any{
+					"type":    "command",
+					"command": command,
+				},
+			},
 		}
+		if evt.HasMatcher {
+			entry["matcher"] = ""
+		}
+		hooks[evt.EventKey] = []any{entry}
 	}
+
+	hooks["PreToolUse"] = []any{preToolUseEntry(binaryPath)}
 	return map[string]any{"hooks": hooks}
 }
 
@@ -78,46 +78,42 @@ func Install(path string, binaryPath string) error {
 	}
 
 	binaryPath = common.ResolveBinaryPath(binaryPath)
-	command := binaryPath + " " + hookCommandMarker
-	preToolUseCommand := binaryPath + " " + preToolUseCommandMarker
 
 	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
 
-	for _, event := range managedEvents {
-		if eventHasManagedHook(hooks, event) {
+	// 标准事件
+	for _, evt := range managedEvents {
+		if eventHasManagedHook(hooks, evt.EventKey) {
 			continue
 		}
-		entries := toAnySlice(hooks[event])
-
-		if event == "PreToolUse" {
-			entries = append(entries, map[string]any{
-				"matcher": preToolUseMatcher,
-				"hooks": []any{
-					map[string]any{
-						"type":    "command",
-						"command": preToolUseCommand,
-						"timeout": 10,
-					},
+		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
+		entry := map[string]any{
+			"hooks": []any{
+				map[string]any{
+					"type":    "command",
+					"command": command,
 				},
-			})
-		} else {
-			entries = append(entries, map[string]any{
-				"hooks": []any{
-					map[string]any{
-						"type":    "command",
-						"command": command,
-					},
-				},
-			})
+			},
 		}
-
-		hooks[event] = entries
+		if evt.HasMatcher {
+			entry["matcher"] = ""
+		}
+		entries := toAnySlice(hooks[evt.EventKey])
+		entries = append(entries, entry)
+		hooks[evt.EventKey] = entries
 	}
-	settings["hooks"] = hooks
 
+	// PreToolUse 特殊处理
+	if !eventHasManagedHook(hooks, "PreToolUse") {
+		entries := toAnySlice(hooks["PreToolUse"])
+		entries = append(entries, preToolUseEntry(binaryPath))
+		hooks["PreToolUse"] = entries
+	}
+
+	settings["hooks"] = hooks
 	return writeSettings(path, settings)
 }
 
@@ -143,10 +139,13 @@ func IsInstalled(path string) (bool, error) {
 		return false, nil
 	}
 
-	for _, event := range managedEvents {
-		if eventHasManagedHook(hooks, event) {
+	for _, evt := range managedEvents {
+		if eventHasManagedHook(hooks, evt.EventKey) {
 			return true, nil
 		}
+	}
+	if eventHasManagedHook(hooks, "PreToolUse") {
+		return true, nil
 	}
 	return false, nil
 }

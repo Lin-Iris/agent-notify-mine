@@ -9,9 +9,9 @@ func TestFormatTitle(t *testing.T) {
 		event string
 		want  string
 	}{
-		{name: "claude permission", agent: "claude_code", event: "permission_required", want: "Claude Code 等待授权"},
-		{name: "claude failed", agent: "claude_code", event: "run_failed", want: "Claude Code 运行失败"},
-		{name: "codex completed", agent: "codex", event: "run_completed", want: "Codex 运行完成"},
+		{name: "claude permission", agent: "claude_code", event: "permission_required", want: "🟠 Claude Code 等待授权"},
+		{name: "claude failed", agent: "claude_code", event: "run_failed", want: "🟠 Claude Code 运行失败"},
+		{name: "codex completed", agent: "codex", event: "run_completed", want: "🟣 Codex 运行完成"},
 	}
 
 	for _, tt := range tests {

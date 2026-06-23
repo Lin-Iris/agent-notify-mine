@@ -1,7 +1,20 @@
 package notify
 
 func FormatTitle(agent, event string) string {
-	return appDisplayName(agent) + " " + eventDisplayName(event)
+	return agentDot(agent) + " " + appDisplayName(agent) + " " + eventDisplayName(event)
+}
+
+func agentDot(agent string) string {
+	switch agent {
+	case "claude_code":
+		return "🟠"
+	case "codex":
+		return "🟣"
+	case "codebuddy":
+		return "🟢"
+	default:
+		return ""
+	}
 }
 
 func DefaultBody(event string) string {

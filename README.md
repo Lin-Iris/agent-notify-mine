@@ -304,6 +304,65 @@ CodeBuddy 推荐事件:
 > hooks = true
 > ```
 
+#### CodeBuddy（`~/.codebuddy/settings.json`）
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook permission_required"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook input_required"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook run_completed"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook run_completed"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook run_failed"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
 ---
 
 ### VS Code 扩展 / Codex.app 支持
@@ -317,6 +376,8 @@ CodeBuddy 推荐事件:
 | Codex CLI | `codex` 命令在 PATH 中 |
 | Codex.app | `/Applications/Codex.app` 或 `~/Applications/Codex.app` 存在 |
 | Codex（已配置） | `~/.codex/hooks.json` 或 `~/.codex/config.toml` 存在 |
+| CodeBuddy IDE 扩展 | `~/.codebuddy/settings.json` 存在 |
+| CodeBuddy CLI | `codebuddy` 命令在 PATH 中 |
 
 即使没有命令行版 CLI，你也可以正常配置 hooks：
 

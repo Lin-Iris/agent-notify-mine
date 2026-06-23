@@ -35,10 +35,11 @@ type OutputWriter interface {
 
 // Service handles the init/setup flow for agent-notify.
 type Service struct {
-	claudeIntegration agentintegrations.Integration
-	codexIntegration  agentintegrations.Integration
-	feishuPreparer    FeishuPreparer
-	configLoader      ConfigLoader
+	claudeIntegration   agentintegrations.Integration
+	codexIntegration    agentintegrations.Integration
+	codebuddyIntegration agentintegrations.Integration
+	feishuPreparer      FeishuPreparer
+	configLoader        ConfigLoader
 }
 
 // ConfigLoader loads and saves configuration.
@@ -60,6 +61,7 @@ func NewService(opts ...Option) *Service {
 	s := &Service{
 		claudeIntegration: agentintegrations.NewClaudeIntegration(),
 		codexIntegration:  agentintegrations.NewCodexIntegration(),
+		codebuddyIntegration: agentintegrations.NewCodeBuddyIntegration(),
 	}
 
 	for _, opt := range opts {
@@ -80,6 +82,11 @@ func WithClaudeIntegration(i agentintegrations.Integration) Option {
 // WithCodexIntegration sets the Codex integration.
 func WithCodexIntegration(i agentintegrations.Integration) Option {
 	return func(s *Service) { s.codexIntegration = i }
+}
+
+// WithCodeBuddyIntegration sets the CodeBuddy integration.
+func WithCodeBuddyIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.codebuddyIntegration = i }
 }
 
 // WithFeishuPreparer sets the Feishu preparer.
@@ -105,6 +112,13 @@ var claudeEventOptions = []PromptOption{
 var codexEventOptions = []PromptOption{
 	{Label: "需要授权 (permission_required)", Value: "permission_required"},
 	{Label: "任务完成 (run_completed)", Value: "run_completed"},
+}
+
+var codebuddyEventOptions = []PromptOption{
+	{Label: "需要授权 (permission_required)", Value: "permission_required"},
+	{Label: "等待输入 (input_required)", Value: "input_required"},
+	{Label: "任务完成 (run_completed)", Value: "run_completed"},
+	{Label: "任务失败 (run_failed)", Value: "run_failed"},
 }
 
 // Run executes the init flow.
@@ -227,6 +241,14 @@ func (s *Service) disableAgentNotification(cfg config.Config, path, agent string
 		cfg.Notify.Codex.Channels.Bark.Enabled = false
 		cfg.Notify.Codex.Events = nil
 		cfg.Agent.Codex.Enabled = false
+	case "codebuddy":
+		cfg.Notify.CodeBuddy.Channels.Feishu.Enabled = false
+		cfg.Notify.CodeBuddy.Channels.System.Enabled = false
+		cfg.Notify.CodeBuddy.Channels.WechatWork.Enabled = false
+		cfg.Notify.CodeBuddy.Channels.DingTalk.Enabled = false
+		cfg.Notify.CodeBuddy.Channels.Bark.Enabled = false
+		cfg.Notify.CodeBuddy.Events = nil
+		cfg.Agent.CodeBuddy.Enabled = false
 	}
 
 	if err := s.saveConfig(path, cfg); err != nil {
@@ -247,6 +269,8 @@ func agentName(agent string) string {
 		return "Claude Code"
 	case "codex":
 		return "Codex"
+	case "codebuddy":
+		return "CodeBuddy"
 	default:
 		return agent
 	}

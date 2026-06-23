@@ -14,6 +14,7 @@ import (
 const (
 	agentClaude     = "claude"
 	agentCodex      = "codex"
+	agentCodeBuddy  = "codebuddy"
 	channelSystem   = "system"
 	channelFeishu   = "feishu"
 	channelWXWork   = "wechat-work"
@@ -101,6 +102,17 @@ func (s *Service) agentOptions(cfg config.Config) ([]PromptOption, string) {
 		}
 	}
 
+	if s.codebuddyIntegration.DetectInstalled() {
+		label := "CodeBuddy"
+		if !isCLIInstalled("codebuddy") {
+			label = "CodeBuddy (IDE 扩展)"
+		}
+		options = append(options, PromptOption{Label: label, Value: agentCodeBuddy})
+		if cfg.Agent.CodeBuddy.Enabled && defaultAgent == "" {
+			defaultAgent = agentCodeBuddy
+		}
+	}
+
 	return options, defaultAgent
 }
 
@@ -147,24 +159,36 @@ func promptEvents(prompter Prompter, agent string, currentEvents []string) ([]st
 }
 
 func eventOptionsForAgent(agent string) []PromptOption {
-	if agent == agentClaude {
+	switch agent {
+	case agentClaude:
 		return claudeEventOptions
+	case agentCodex:
+		return codexEventOptions
+	default:
+		return codebuddyEventOptions
 	}
-	return codexEventOptions
 }
 
 func channelsForAgent(cfg config.Config, agent string) config.ChannelsConfig {
-	if agent == agentClaude {
+	switch agent {
+	case agentClaude:
 		return cfg.Notify.ClaudeCode.Channels
+	case agentCodex:
+		return cfg.Notify.Codex.Channels
+	default:
+		return cfg.Notify.CodeBuddy.Channels
 	}
-	return cfg.Notify.Codex.Channels
 }
 
 func eventsForAgent(cfg config.Config, agent string) []string {
-	if agent == agentClaude {
+	switch agent {
+	case agentClaude:
 		return cfg.Notify.ClaudeCode.Events
+	case agentCodex:
+		return cfg.Notify.Codex.Events
+	default:
+		return cfg.Notify.CodeBuddy.Events
 	}
-	return cfg.Notify.Codex.Events
 }
 
 func (s *Service) configureAgent(req configureAgentRequest) (configuredAgent, error) {
@@ -173,6 +197,8 @@ func (s *Service) configureAgent(req configureAgentRequest) (configuredAgent, er
 		return s.configureClaude(req)
 	case agentCodex:
 		return s.configureCodex(req)
+	case agentCodeBuddy:
+		return s.configureCodeBuddy(req)
 	default:
 		return configuredAgent{}, fmt.Errorf("unsupported agent: %s", req.agent)
 	}
@@ -234,6 +260,34 @@ func (s *Service) configureCodex(req configureAgentRequest) (configuredAgent, er
 	next.Agent.Codex.Enabled = true
 	return configuredAgent{cfg: next, settingsPath: settingsPath}, nil
 }
+func (s *Service) configureCodeBuddy(req configureAgentRequest) (configuredAgent, error) {
+	next := req.cfg
+	next.Notify.CodeBuddy.Channels = applyChannelSelection(next.Notify.CodeBuddy.Channels, req.channels)
+	next.Notify.CodeBuddy.Events = dedupeStrings(req.events)
+	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
+		return configuredAgent{}, err
+	}
+	channels, err := promptWebhookURLs(req.prompter, next.Notify.CodeBuddy.Channels, req.channels)
+	if err != nil {
+		return configuredAgent{}, err
+	}
+	next.Notify.CodeBuddy.Channels = channels
+
+	agentScope := normalizedInstallScope(next.Agent.CodeBuddy.InstallScope)
+	settingsPath, err := s.codebuddyIntegration.SettingsPath(agentScope)
+	if err != nil {
+		return configuredAgent{}, fmt.Errorf("获取 codebuddy settings 路径失败: %w", err)
+	}
+	resolvedBinary := common.ResolveBinaryPath(req.binaryPath)
+	if err := s.codebuddyIntegration.Install(settingsPath, resolvedBinary); err != nil {
+		return configuredAgent{}, fmt.Errorf("安装 codebuddy hooks 失败: %w", err)
+	}
+	req.output.Writef("codebuddy hooks 安装: %sn", settingsPath)
+	next.Agent.CodeBuddy.InstallScope = agentScope
+	next.Agent.CodeBuddy.Enabled = true
+	return configuredAgent{cfg: next, settingsPath: settingsPath}, nil
+}
+
 
 func applyChannelSelection(channels config.ChannelsConfig, selection channelSelection) config.ChannelsConfig {
 	next := channels

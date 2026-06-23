@@ -30,17 +30,18 @@
 
 ### 支持的事件
 
-| 事件 | 说明 | Claude Code | Codex |
-|------|------|:---:|:---:|
-| `permission_required` | Agent 需要授权（如执行命令） | ✅ | ✅ |
-| `input_required` | Agent 等待用户输入 | ✅ | — |
-| `run_completed` | 任务执行完成 | ✅ | ✅ |
-| `run_failed` | 任务执行失败 | ✅ | — |
+| 事件 | 说明 | Claude Code | Codex | CodeBuddy |
+|------|------|:---:|:---:|:---:|
+| `permission_required` | Agent 需要授权（如执行命令） | ✅ | ✅ | ✅ |
+| `input_required` | Agent 等待用户输入 | ✅ | — | ✅ |
+| `run_completed` | 任务执行完成 | ✅ | ✅ | ✅ |
+| `run_failed` | 任务执行失败 | ✅ | — | ✅ |
 
 说明：
 
 - Claude Code 通过 `~/.claude/settings.json` 的 hooks 订阅四个事件（`PermissionRequest`、`Notification`、`Stop`、`PostToolUseFailure`）。
 - Codex 通过 `~/.codex/hooks.json` 订阅 `PermissionRequest` 与 `Stop`，分别映射到 `permission_required` 与 `run_completed`。`input_required` 与 `run_failed` Codex 目前没有对应 hook，因此暂不支持。
+- CodeBuddy 通过 `~/.codebuddy/settings.json` 的 hooks 订阅五个事件（`PermissionRequest`、`Notification`、`Stop`、`SessionEnd`、`PostToolUseFailure`），全部映射到通知事件。
 
 ### 支持的平台
 
@@ -59,7 +60,7 @@
 ```bash
 # 1. 下载对应平台的二进制（以 macOS ARM 为例）
 curl -L -o agent-notify.tar.gz \
-  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.9.0/agent-notify-v0.9.0-darwin-arm64.tar.gz
+  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.10.0/agent-notify-v0.10.0-darwin-arm64.tar.gz
 
 # 2. 解压并安装
 tar xzf agent-notify.tar.gz
@@ -69,19 +70,19 @@ sudo mv agent-notify-* /usr/local/bin/agent-notify
 agent-notify --help
 ```
 
-> 解压后得到的文件名为 `agent-notify-v0.9.0-darwin-arm64`（带版本号和平台名），`mv` 时重命名为 `agent-notify`。
+> 解压后得到的文件名为 `agent-notify-v0.10.0-darwin-arm64`（带版本号和平台名），`mv` 时重命名为 `agent-notify`。
 
 #### 私有仓库
 
 ```bash
 # 方式 1: 使用 gh CLI（推荐）
-gh release download v0.9.0 --repo Lin-Iris/agent-notify-mine -p "*-darwin-arm64.tar.gz"
+gh release download v0.10.0 --repo Lin-Iris/agent-notify-mine -p "*-darwin-arm64.tar.gz"
 tar xzf agent-notify-*.tar.gz
 sudo mv agent-notify-* /usr/local/bin/agent-notify
 
 # 方式 2: curl 带 GitHub Token
 curl -L -H "Authorization: token YOUR_GITHUB_TOKEN" -o agent-notify.tar.gz \
-  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.9.0/agent-notify-v0.9.0-darwin-arm64.tar.gz
+  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.10.0/agent-notify-v0.10.0-darwin-arm64.tar.gz
 tar xzf agent-notify.tar.gz
 sudo mv agent-notify-* /usr/local/bin/agent-notify
 
@@ -141,7 +142,7 @@ go build -o /usr/local/bin/agent-notify ./cmd/agent-notify/
 ```bash
 # 以 macOS M1/M2/M3/M4/M5 为例（darwin-arm64）
 curl -L -o agent-notify.tar.gz \
-  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.9.0/agent-notify-v0.9.0-darwin-arm64.tar.gz
+  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.10.0/agent-notify-v0.10.0-darwin-arm64.tar.gz
 
 # 解压（任何目录都可以）
 tar xzf agent-notify.tar.gz
@@ -693,8 +694,9 @@ agent-notify test
 
 agent-notify 自身配置位于 `~/.agent-notify/config.yaml`。Agent 集成配置位置：
 
-- Claude Code: `~/.claude/settings.json`（写入 hooks → 命令 `agent-notify handle-claude-hook`）
-- Codex: `~/.codex/hooks.json`（写入 hooks → 命令 `agent-notify handle-codex-hook`，需在 codex 内运行 `/hooks` 完成 trust）
+- Claude Code: `~/.claude/settings.json`（hooks 命令: `agent-notify handle-claude-hook`）
+- Codex: `~/.codex/hooks.json`（hooks 命令: `agent-notify handle-codex-hook`，需在 Codex 内运行 `/hooks` 完成 trust）
+- CodeBuddy: `~/.codebuddy/settings.json`（hooks 命令: `agent-notify handle-codebuddy-hook`）
 
 ## 工作流程
 

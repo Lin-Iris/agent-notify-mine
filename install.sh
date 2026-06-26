@@ -4,7 +4,7 @@ set -euo pipefail
 
 OWNER="Lin-Iris"
 REPO="agent-notify-mine"
-VERSION="${AGENT_NOTIFY_VERSION:-v0.10.2}"
+VERSION="${AGENT_NOTIFY_VERSION:-v0.11.0}"
 INSTALL_DIR="${AGENT_NOTIFY_INSTALL_DIR:-$HOME/.local/bin}"
 BIN_NAME="agent-notify"
 

@@ -89,7 +89,7 @@ agent-notify --help
 
 ```bash
 # macOS ARM（M1/M2/M3/M4/M5）
-curl -fsSL https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.10.2/agent-notify-v0.10.2-darwin-arm64.tar.gz -o agent-notify.tar.gz
+curl -fsSL https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.11.0/agent-notify-v0.11.0-darwin-arm64.tar.gz -o agent-notify.tar.gz
 tar -xzf agent-notify.tar.gz
 mv agent-notify-* ~/.local/bin/agent-notify
 chmod +x ~/.local/bin/agent-notify

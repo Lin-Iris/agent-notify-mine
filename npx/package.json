@@ -1,6 +1,6 @@
 {
   "name": "agent-notify-mine",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "NPX launcher for the agent-notify binary",
   "bin": {
     "agent-notify": "./bin/agent-notify.js"

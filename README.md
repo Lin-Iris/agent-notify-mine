@@ -201,7 +201,9 @@ CodeBuddy 推荐事件:
 
 ### Hooks 配置格式
 
-`agent-notify init` 会自动写入正确的 hooks 配置。以下是配置文件的实际 JSON 格式，供手动排查时参考。
+`agent-notify init` 会自动写入正确的 hooks 配置（包含实际的二进制路径，如 `~/.local/bin/agent-notify`）。以下是配置文件的实际 JSON 格式，供手动排查时参考。
+
+> ⚠️ 以下示例中的 `/usr/local/bin/agent-notify` 仅为示意。`agent-notify init` 会根据实际安装位置自动填入正确路径（如 `/Users/你的用户名/.local/bin/agent-notify`）。手动编写 hooks 时请替换为 `which agent-notify` 输出的实际路径。
 
 #### Claude Code（`~/.claude/settings.json`）
 

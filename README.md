@@ -780,22 +780,47 @@ event.Event                     notify.Message             SessionRecord
 | Claude Code hooks（`~/.claude/settings.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
 | Codex hooks（`~/.codex/hooks.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
 | CodeBuddy hooks（`~/.codebuddy/settings.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
-| **二进制本身**（`/usr/local/bin/agent-notify`） | ❌ 不删 |
+| **二进制本身**（`~/.local/bin/agent-notify` 或 `~/.agent-notify/agent-notify`） | ❌ 不删 |
+| **npm 全局包** | ❌ 不删 |
 | **VS Code 扩展** | ❌ 不删 |
 
 ### 彻底卸载
+
+根据你的安装方式选择：
+
+#### 方式一：install.sh 安装的
 
 ```bash
 # 1. 清理配置和 hooks
 agent-notify clean
 
 # 2. 删二进制
-rm /usr/local/bin/agent-notify
+rm ~/.local/bin/agent-notify
 
-# 3. VS Code 扩展：扩展面板搜索 agent-notify → 卸载
+# 3. （可选）从 ~/.zshrc 或 ~/.bashrc 中删掉 PATH 行
+# export PATH="$HOME/.local/bin:$PATH"
+```
+
+#### 方式二：npx 安装的
+
+```bash
+# 1. 清理配置和 hooks
+npx agent-notify-mine clean
+
+# 2. 删缓存目录
+rm -rf ~/.agent-notify
+```
+
+#### 方式三：从源码构建的
+
+```bash
+agent-notify clean
+rm ~/.local/bin/agent-notify       # 或你 go build 指定的路径
 ```
 
 > ⚠️ `clean` 只删除 agent-notify 写入的 hooks 条目，`~/.claude/settings.json` 和 `~/.codebuddy/settings.json` 中的其他配置（模型、环境变量等）不受影响。
+>
+> 注：VS Code 扩展需在扩展面板手动卸载，与上述方式无关。
 
 
 ## ❤️ 赞助

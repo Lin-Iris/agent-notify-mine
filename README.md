@@ -6,13 +6,13 @@
 
 [![Go Version](https://img.shields.io/badge/Go-%3E%3D1.25-blue.svg)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/github/v/release/hellolib/agent-notify.svg)](https://github.com/hellolib/agent-notify/releases)
+[![Release](https://img.shields.io/github/v/release/Lin-Iris/agent-notify-mine.svg)](https://github.com/Lin-Iris/agent-notify-mine/releases)
 
 </div>
 
 ## 项目简介
 
-一个面向 AI Agent 的通知配置工具。支持将 Claude Code、Codex 等 Agent 的事件通知推送到飞书、企业微信、Bark 和系统通知。
+一个面向 AI Agent 的通知配置工具。支持将 Claude Code、Codex、CodeBuddy 等 Agent 的事件通知推送到微信（Server酱 / PushPlus / WxPusher）、飞书、企业微信、钉钉、Bark 和系统通知。
 
 ## 功能特性
 
@@ -55,52 +55,54 @@
 
 ### 安装
 
-#### 公共仓库
+#### 方式一：一键安装（推荐）
 
 ```bash
-# 1. 下载对应平台的二进制（以 macOS ARM 为例）
-curl -L -o agent-notify.tar.gz \
-  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.10.0/agent-notify-v0.10.0-darwin-arm64.tar.gz
-
-# 2. 解压并安装
-tar xzf agent-notify.tar.gz
-sudo mv agent-notify-* /usr/local/bin/agent-notify
-
-# 3. 验证
-agent-notify --help
+curl -fsSL https://raw.githubusercontent.com/Lin-Iris/agent-notify-mine/main/install.sh | bash
 ```
 
-> 解压后得到的文件名为 `agent-notify-v0.10.0-darwin-arm64`（带版本号和平台名），`mv` 时重命名为 `agent-notify`。
+脚本自动检测系统平台，下载对应二进制，安装到 `~/.local/bin/` 并配置 PATH。
 
-#### 私有仓库
+#### 方式二：npx（需 Node.js >= 18）
 
 ```bash
-# 方式 1: 使用 gh CLI（推荐）
-gh release download v0.10.0 --repo Lin-Iris/agent-notify-mine -p "*-darwin-arm64.tar.gz"
-tar xzf agent-notify-*.tar.gz
-sudo mv agent-notify-* /usr/local/bin/agent-notify
-
-# 方式 2: curl 带 GitHub Token
-curl -L -H "Authorization: token YOUR_GITHUB_TOKEN" -o agent-notify.tar.gz \
-  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.10.0/agent-notify-v0.10.0-darwin-arm64.tar.gz
-tar xzf agent-notify.tar.gz
-sudo mv agent-notify-* /usr/local/bin/agent-notify
-
-# 方式 3: 浏览器下载
-# 1. 打开 https://github.com/Lin-Iris/agent-notify-mine/releases
-# 2. 下载 *.tar.gz 文件
-# 3. tar xzf agent-notify-*.tar.gz
-# 4. sudo mv agent-notify-* /usr/local/bin/agent-notify
+npx agent-notify-mine
 ```
 
-#### 从源码构建
+首次运行自动下载 Go 二进制到 `~/.agent-notify/`，之后每次运行自动检查更新。无需手动安装。
+
+> ⚠️ 目前 npx 包尚未发布到 npm。发布后即可使用。在此之前请使用方式一或方式三。
+
+#### 方式三：从源码构建
 
 ```bash
 git clone https://github.com/Lin-Iris/agent-notify-mine.git
-cd agent-notify-mine/agent-notify-go
-go build -o /usr/local/bin/agent-notify ./cmd/agent-notify/
+cd agent-notify-mine
+go build -o ~/.local/bin/agent-notify ./cmd/agent-notify/
+export PATH="$HOME/.local/bin:$PATH"
 agent-notify --help
 ```
+
+#### 方式四：手动下载 Release
+
+从 [Releases](https://github.com/Lin-Iris/agent-notify-mine/releases) 下载对应平台的 `.tar.gz` 文件：
+
+```bash
+# macOS ARM（M1/M2/M3/M4/M5）
+curl -fsSL https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.10.1/agent-notify-v0.10.1-darwin-arm64.tar.gz -o agent-notify.tar.gz
+tar -xzf agent-notify.tar.gz
+mv agent-notify-* ~/.local/bin/agent-notify
+chmod +x ~/.local/bin/agent-notify
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+| 你的电脑 | 下载文件 |
+|---------|---------|
+| Mac (Apple Silicon) | `*-darwin-arm64.tar.gz` |
+| Mac (Intel) | `*-darwin-amd64.tar.gz` |
+| Linux (amd64) | `*-linux-amd64.tar.gz` |
+| Linux (arm64) | `*-linux-arm64.tar.gz` |
+| Windows (amd64) | `*-windows-amd64.tar.gz` |
 
 ### 配置
 
@@ -127,60 +129,36 @@ agent-notify init
 
 ## 在其他设备上使用
 
-### 方式一：从源码构建（推荐）
+新设备上安装同样简单，任选一种：
+
+### 方式一：一键安装
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lin-Iris/agent-notify-mine/main/install.sh | bash
+```
+
+### 方式二：npx（需 Node.js >= 18）
+
+```bash
+npx agent-notify-mine
+```
+
+> ⚠️ npx 包尚未发布到 npm，发布后即可使用。
+
+### 方式三：从源码构建
 
 ```bash
 git clone https://github.com/Lin-Iris/agent-notify-mine.git
-cd agent-notify-mine/agent-notify-go
-go build -o /usr/local/bin/agent-notify ./cmd/agent-notify/
+cd agent-notify-mine
+go build -o ~/.local/bin/agent-notify ./cmd/agent-notify/
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### 方式二：下载 Release 二进制
+### 方式四：手动下载 Release
 
-从 [Releases](https://github.com/Lin-Iris/agent-notify-mine/releases) 下载对应平台的最新压缩包。
+从 [Releases](https://github.com/Lin-Iris/agent-notify-mine/releases) 下载对应平台压缩包，解压到 `~/.local/bin/` 即可。
 
-```bash
-# 以 macOS M1/M2/M3/M4/M5 为例（darwin-arm64）
-curl -L -o agent-notify.tar.gz \
-  https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.10.0/agent-notify-v0.10.0-darwin-arm64.tar.gz
-
-# 解压（任何目录都可以）
-tar xzf agent-notify.tar.gz
-
-# 安装到系统 PATH
-sudo mv agent-notify /usr/local/bin/
-
-# 验证
-agent-notify --help
-```
-
-> 解压可以在任意目录执行，解压后得到 `agent-notify` 二进制文件。
-> 只要把这个文件放到 PATH 中的目录（如 `/usr/local/bin/`）即可全局使用。
-> 解压出来的临时目录可以随时删除。
-
-**选择正确的文件：**
-
-| 你的电脑 | 下载文件 |
-|---------|---------|
-| MacBook Air M5 / Intel Mac | `*-darwin-arm64.tar.gz` / `*-darwin-amd64.tar.gz` |
-| Linux 服务器 (amd64) | `*-linux-amd64.tar.gz` |
-| Linux 服务器 (arm64) | `*-linux-arm64.tar.gz` |
-| Windows PC | `*-windows-amd64.tar.gz` 或 `*-windows-arm64.tar.gz` |
-
-### 初始化配置
-
-```bash
-# 交互式配置（选择 Agent、通知渠道、事件）
-agent-notify init
-
-# 或分步配置消息渠道
-agent-notify
-
-# 测试通知是否正常
-agent-notify test
-```
-
-`agent-notify init` 会自动检测本机安装的 Agent（Claude Code CLI / VS Code 扩展、Codex CLI / Codex.app、CodeBuddy IDE 扩展 / CLI），即使没有命令行工具也能正常配置 hooks。
+安装后运行 `agent-notify init` 完成配置，然后 `agent-notify test` 测试通知。
 
 ## 支持的 Agent
 

@@ -12,16 +12,19 @@ import (
 )
 
 const (
-	agentClaude     = "claude"
-	agentCodex      = "codex"
-	agentCodeBuddy  = "codebuddy"
-	channelSystem   = "system"
-	channelFeishu   = "feishu"
-	channelWXWork   = "wechat-work"
-	channelDingTalk = "dingtalk"
-	channelBark     = "bark"
-	installScopeUsr = "user"
-	installScopePrj = "project"
+	agentClaude       = "claude"
+	agentCodex        = "codex"
+	agentCodeBuddy    = "codebuddy"
+	channelSystem     = "system"
+	channelFeishu     = "feishu"
+	channelWXWork     = "wechat-work"
+	channelDingTalk   = "dingtalk"
+	channelBark       = "bark"
+	channelServerChan = "serverchan"
+	channelPushPlus   = "pushplus"
+	channelWxPusher   = "wxpusher"
+	installScopeUsr   = "user"
+	installScopePrj   = "project"
 )
 
 var channelOptions = []PromptOption{
@@ -30,6 +33,9 @@ var channelOptions = []PromptOption{
 	{Label: "企业微信", Value: channelWXWork},
 	{Label: "钉钉", Value: channelDingTalk},
 	{Label: "Bark", Value: channelBark},
+	{Label: "Server酱", Value: channelServerChan},
+	{Label: "PushPlus", Value: channelPushPlus},
+	{Label: "WxPusher", Value: channelWxPusher},
 }
 
 type channelSelection struct {
@@ -38,10 +44,13 @@ type channelSelection struct {
 	WechatWork bool
 	DingTalk   bool
 	Bark       bool
+	ServerChan bool
+	PushPlus   bool
+	WxPusher   bool
 }
 
 func (c channelSelection) hasAny() bool {
-	return c.System || c.Feishu || c.WechatWork || c.DingTalk || c.Bark
+	return c.System || c.Feishu || c.WechatWork || c.DingTalk || c.Bark || c.ServerChan || c.PushPlus || c.WxPusher
 }
 
 type configureAgentRequest struct {
@@ -141,6 +150,15 @@ func currentChannelValues(channels config.ChannelsConfig) []string {
 	if channels.Bark.Enabled {
 		values = append(values, channelBark)
 	}
+	if channels.ServerChan.Enabled {
+		values = append(values, channelServerChan)
+	}
+	if channels.PushPlus.Enabled {
+		values = append(values, channelPushPlus)
+	}
+	if channels.WxPusher.Enabled {
+		values = append(values, channelWxPusher)
+	}
 	return values
 }
 
@@ -151,6 +169,9 @@ func channelSelectionFromChoices(choices []string) channelSelection {
 		WechatWork: slices.Contains(choices, channelWXWork),
 		DingTalk:   slices.Contains(choices, channelDingTalk),
 		Bark:       slices.Contains(choices, channelBark),
+		ServerChan: slices.Contains(choices, channelServerChan),
+		PushPlus:   slices.Contains(choices, channelPushPlus),
+		WxPusher:   slices.Contains(choices, channelWxPusher),
 	}
 }
 
@@ -211,7 +232,7 @@ func (s *Service) configureClaude(req configureAgentRequest) (configuredAgent, e
 	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
 		return configuredAgent{}, err
 	}
-	channels, err := promptWebhookURLs(req.prompter, next.Notify.ClaudeCode.Channels, req.channels)
+	channels, err := promptWebhookURLs(req.prompter, req.output, next.Notify.ClaudeCode.Channels, req.channels)
 	if err != nil {
 		return configuredAgent{}, err
 	}
@@ -239,7 +260,7 @@ func (s *Service) configureCodex(req configureAgentRequest) (configuredAgent, er
 	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
 		return configuredAgent{}, err
 	}
-	channels, err := promptWebhookURLs(req.prompter, next.Notify.Codex.Channels, req.channels)
+	channels, err := promptWebhookURLs(req.prompter, req.output, next.Notify.Codex.Channels, req.channels)
 	if err != nil {
 		return configuredAgent{}, err
 	}
@@ -267,7 +288,7 @@ func (s *Service) configureCodeBuddy(req configureAgentRequest) (configuredAgent
 	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
 		return configuredAgent{}, err
 	}
-	channels, err := promptWebhookURLs(req.prompter, next.Notify.CodeBuddy.Channels, req.channels)
+	channels, err := promptWebhookURLs(req.prompter, req.output, next.Notify.CodeBuddy.Channels, req.channels)
 	if err != nil {
 		return configuredAgent{}, err
 	}
@@ -296,6 +317,9 @@ func applyChannelSelection(channels config.ChannelsConfig, selection channelSele
 	next.WechatWork.Enabled = selection.WechatWork
 	next.DingTalk.Enabled = selection.DingTalk
 	next.Bark.Enabled = selection.Bark
+	next.ServerChan.Enabled = selection.ServerChan
+	next.PushPlus.Enabled = selection.PushPlus
+	next.WxPusher.Enabled = selection.WxPusher
 	return next
 }
 
@@ -311,6 +335,7 @@ func (s *Service) prepareSelectedChannels(ctx context.Context, selection channel
 
 func promptWebhookURLs(
 	prompter Prompter,
+	output OutputWriter,
 	channels config.ChannelsConfig,
 	selection channelSelection,
 ) (config.ChannelsConfig, error) {
@@ -335,6 +360,35 @@ func promptWebhookURLs(
 			return config.ChannelsConfig{}, err
 		}
 		next.Bark.WebhookURL = webhookURL
+	}
+	if selection.ServerChan {
+		output.Writef("📌 Server酱：打开 https://sct.ftqq.com/ 登录后，在「发送消息」页面拷贝 SendKey（SCU 开头）\n")
+		sendKey, err := prompter.Input("Server酱 SendKey（SCU 开头）", next.ServerChan.SendKey)
+		if err != nil {
+			return config.ChannelsConfig{}, err
+		}
+		next.ServerChan.SendKey = sendKey
+	}
+	if selection.PushPlus {
+		output.Writef("📌 PushPlus：打开 https://www.pushplus.plus/ 登录后，在「发送消息」→「一对一消息」页面拷贝 Token\n")
+		token, err := prompter.Input("PushPlus Token", next.PushPlus.Token)
+		if err != nil {
+			return config.ChannelsConfig{}, err
+		}
+		next.PushPlus.Token = token
+	}
+	if selection.WxPusher {
+		output.Writef("📌 WxPusher：打开 https://wxpusher.dingliqc.com/ 登录后，在「应用管理」→「应用信息」页面拷贝 AppToken，在「用户管理」页面扫码关注后获取 UID\n")
+		appToken, err := prompter.Input("WxPusher AppToken", next.WxPusher.AppToken)
+		if err != nil {
+			return config.ChannelsConfig{}, err
+		}
+		next.WxPusher.AppToken = appToken
+		uid, err := prompter.Input("WxPusher UID", next.WxPusher.UID)
+		if err != nil {
+			return config.ChannelsConfig{}, err
+		}
+		next.WxPusher.UID = uid
 	}
 	return next, nil
 }

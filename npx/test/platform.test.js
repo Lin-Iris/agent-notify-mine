@@ -43,6 +43,6 @@ test('builds release asset names from version and target', () => {
 test('builds download URL from version and asset name', () => {
   assert.equal(
     buildDownloadUrl('0.2.3', 'agent-notify-v0.2.3-linux-arm64.tar.gz'),
-    'https://github.com/hellolib/agent-notify/releases/download/v0.2.3/agent-notify-v0.2.3-linux-arm64.tar.gz',
+    'https://github.com/Lin-Iris/agent-notify-mine/releases/download/v0.2.3/agent-notify-v0.2.3-linux-arm64.tar.gz',
   );
 });

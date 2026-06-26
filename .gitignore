@@ -1,4 +1,6 @@
 .DS_Store
+agent-notify
+agent-notify.exe
 .vscode/
 .idea/
 .worktrees/

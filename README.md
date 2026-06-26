@@ -71,7 +71,7 @@ npx agent-notify-mine
 
 首次运行自动下载 Go 二进制到 `~/.agent-notify/`，之后每次运行自动检查更新。无需手动安装。
 
-> ⚠️ 目前 npx 包尚未发布到 npm。发布后即可使用。在此之前请使用方式一或方式三。
+> ⚠️ 使用此方式前，需先将包发布到 npm。详见下方 [发布到 npm](#发布到-npm)。
 
 #### 方式三：从源码构建
 
@@ -143,7 +143,7 @@ curl -fsSL https://raw.githubusercontent.com/Lin-Iris/agent-notify-mine/main/ins
 npx agent-notify-mine
 ```
 
-> ⚠️ npx 包尚未发布到 npm，发布后即可使用。
+> ⚠️ 使用前需先[发布到 npm](#发布到-npm)。
 
 ### 方式三：从源码构建
 
@@ -824,6 +824,42 @@ rm ~/.local/bin/agent-notify       # 或你 go build 指定的路径
 >
 > 注：VS Code 扩展需在扩展面板手动卸载，与上述方式无关。
 
+## 发布到 npm
+
+为了让用户通过 `npx agent-notify-mine` 一键使用，需要将 npx 包装器发布到 npm。
+
+### 首次发布
+
+```bash
+# 1. 注册 npm 账号
+#    打开 https://www.npmjs.com/signup 注册（免费）
+
+# 2. 在终端登录 npm
+cd npx
+npm login
+#    输入用户名、密码、邮箱（注册时填的）
+
+# 3. 发布
+npm publish
+```
+
+发布成功后，任何装了 Node.js 的设备都能用：
+
+```bash
+npx agent-notify-mine init
+```
+
+### 后续更新
+
+每次 Go 二进制发新版后，更新 `npx/package.json` 的 `version` 字段，然后：
+
+```bash
+cd npx
+npm version patch        # 小版本号 +0.0.1，或手动改 package.json
+npm publish
+```
+
+> 注：npx 包装器不再维护测试文件，发布时 `package.json` 中 `"files"` 可改为 `["bin", "lib"]`。
 
 ## ❤️ 赞助
 

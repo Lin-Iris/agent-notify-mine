@@ -40,6 +40,8 @@ func NewRootCmd(ctx context.Context, streams Streams) *cobra.Command {
 		newHandleCodexHookCmd(ctx, streams),
 		newHandleCodeBuddyHookCmd(ctx, streams),
 		newHandleCodeBuddyPreToolUseCmd(ctx, streams),
+		newHandleCursorHookCmd(ctx, streams),
+		newHandleHermesHookCmd(ctx, streams),
 	)
 
 	return root

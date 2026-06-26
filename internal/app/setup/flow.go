@@ -15,6 +15,8 @@ const (
 	agentClaude       = "claude"
 	agentCodex        = "codex"
 	agentCodeBuddy    = "codebuddy"
+	agentCursor       = "cursor"
+	agentHermes       = "hermes"
 	channelSystem     = "system"
 	channelFeishu     = "feishu"
 	channelWXWork     = "wechat-work"
@@ -122,6 +124,28 @@ func (s *Service) agentOptions(cfg config.Config) ([]PromptOption, string) {
 		}
 	}
 
+	if s.cursorIntegration.DetectInstalled() {
+		label := "Cursor"
+		if !isCLIInstalled("cursor") {
+			label = "Cursor (IDE)"
+		}
+		options = append(options, PromptOption{Label: label, Value: agentCursor})
+		if cfg.Agent.Cursor.Enabled && defaultAgent == "" {
+			defaultAgent = agentCursor
+		}
+	}
+
+	if s.hermesIntegration.DetectInstalled() {
+		label := "Hermes"
+		if !isCLIInstalled("hermes") {
+			label = "Hermes (CLI)"
+		}
+		options = append(options, PromptOption{Label: label, Value: agentHermes})
+		if cfg.Agent.Hermes.Enabled && defaultAgent == "" {
+			defaultAgent = agentHermes
+		}
+	}
+
 	return options, defaultAgent
 }
 
@@ -185,6 +209,10 @@ func eventOptionsForAgent(agent string) []PromptOption {
 		return claudeEventOptions
 	case agentCodex:
 		return codexEventOptions
+	case agentCursor:
+		return cursorEventOptions
+	case agentHermes:
+		return hermesEventOptions
 	default:
 		return codebuddyEventOptions
 	}
@@ -196,6 +224,10 @@ func channelsForAgent(cfg config.Config, agent string) config.ChannelsConfig {
 		return cfg.Notify.ClaudeCode.Channels
 	case agentCodex:
 		return cfg.Notify.Codex.Channels
+	case agentCursor:
+		return cfg.Notify.Cursor.Channels
+	case agentHermes:
+		return cfg.Notify.Hermes.Channels
 	default:
 		return cfg.Notify.CodeBuddy.Channels
 	}
@@ -207,6 +239,10 @@ func eventsForAgent(cfg config.Config, agent string) []string {
 		return cfg.Notify.ClaudeCode.Events
 	case agentCodex:
 		return cfg.Notify.Codex.Events
+	case agentCursor:
+		return cfg.Notify.Cursor.Events
+	case agentHermes:
+		return cfg.Notify.Hermes.Events
 	default:
 		return cfg.Notify.CodeBuddy.Events
 	}
@@ -220,6 +256,10 @@ func (s *Service) configureAgent(req configureAgentRequest) (configuredAgent, er
 		return s.configureCodex(req)
 	case agentCodeBuddy:
 		return s.configureCodeBuddy(req)
+	case agentCursor:
+		return s.configureCursor(req)
+	case agentHermes:
+		return s.configureHermes(req)
 	default:
 		return configuredAgent{}, fmt.Errorf("unsupported agent: %s", req.agent)
 	}
@@ -309,6 +349,61 @@ func (s *Service) configureCodeBuddy(req configureAgentRequest) (configuredAgent
 	return configuredAgent{cfg: next, settingsPath: settingsPath}, nil
 }
 
+func (s *Service) configureCursor(req configureAgentRequest) (configuredAgent, error) {
+	next := req.cfg
+	next.Notify.Cursor.Channels = applyChannelSelection(next.Notify.Cursor.Channels, req.channels)
+	next.Notify.Cursor.Events = dedupeStrings(req.events)
+	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
+		return configuredAgent{}, err
+	}
+	channels, err := promptWebhookURLs(req.prompter, req.output, next.Notify.Cursor.Channels, req.channels)
+	if err != nil {
+		return configuredAgent{}, err
+	}
+	next.Notify.Cursor.Channels = channels
+
+	agentScope := normalizedInstallScope(next.Agent.Cursor.InstallScope)
+	settingsPath, err := s.cursorIntegration.SettingsPath(agentScope)
+	if err != nil {
+		return configuredAgent{}, fmt.Errorf("获取 cursor settings 路径失败: %w", err)
+	}
+	resolvedBinary := common.ResolveBinaryPath(req.binaryPath)
+	if err := s.cursorIntegration.Install(settingsPath, resolvedBinary); err != nil {
+		return configuredAgent{}, fmt.Errorf("安装 cursor hooks 失败: %w", err)
+	}
+	req.output.Writef("cursor hooks 安装: %s\n", settingsPath)
+	next.Agent.Cursor.InstallScope = agentScope
+	next.Agent.Cursor.Enabled = true
+	return configuredAgent{cfg: next, settingsPath: settingsPath}, nil
+}
+
+func (s *Service) configureHermes(req configureAgentRequest) (configuredAgent, error) {
+	next := req.cfg
+	next.Notify.Hermes.Channels = applyChannelSelection(next.Notify.Hermes.Channels, req.channels)
+	next.Notify.Hermes.Events = dedupeStrings(req.events)
+	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
+		return configuredAgent{}, err
+	}
+	channels, err := promptWebhookURLs(req.prompter, req.output, next.Notify.Hermes.Channels, req.channels)
+	if err != nil {
+		return configuredAgent{}, err
+	}
+	next.Notify.Hermes.Channels = channels
+
+	agentScope := normalizedInstallScope(next.Agent.Hermes.InstallScope)
+	settingsPath, err := s.hermesIntegration.SettingsPath(agentScope)
+	if err != nil {
+		return configuredAgent{}, fmt.Errorf("获取 hermes settings 路径失败: %w", err)
+	}
+	resolvedBinary := common.ResolveBinaryPath(req.binaryPath)
+	if err := s.hermesIntegration.Install(settingsPath, resolvedBinary); err != nil {
+		return configuredAgent{}, fmt.Errorf("安装 hermes hooks 失败: %w", err)
+	}
+	req.output.Writef("hermes hooks 安装: %s\n", settingsPath)
+	next.Agent.Hermes.InstallScope = agentScope
+	next.Agent.Hermes.Enabled = true
+	return configuredAgent{cfg: next, settingsPath: settingsPath}, nil
+}
 
 func applyChannelSelection(channels config.ChannelsConfig, selection channelSelection) config.ChannelsConfig {
 	next := channels

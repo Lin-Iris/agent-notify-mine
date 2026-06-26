@@ -169,15 +169,17 @@ export PATH="$HOME/.local/bin:$PATH"
 | **Claude Code** | `~/.claude/settings.json` | 4 | `agent-notify init` 选择 Claude Code |
 | **Codex** | `~/.codex/hooks.json` | 2 | `agent-notify init` 选择 Codex |
 | **CodeBuddy** | `~/.codebuddy/settings.json` | 4 | `agent-notify init` 选择 CodeBuddy |
+| **Cursor** | `~/.cursor/hooks.json` | 3 | `agent-notify init` 选择 Cursor |
+| **Hermes** | `~/.hermes/config.yaml` | 2 | `agent-notify init` 选择 Hermes |
 
 ### Agent 事件对照
 
-| 统一事件 | 含义 | Claude Code | Codex | CodeBuddy |
-|---------|------|:-----------:|:-----:|:---------:|
-| `permission_required` | 需要用户授权执行操作 | ✅ | ✅ | ✅ |
-| `input_required` | 等待用户输入 | ✅ | — | ✅ |
-| `run_completed` | 任务执行完成 | ✅ | ✅ | ✅ |
-| `run_failed` | 任务执行失败 | ✅ | — | ✅ |
+| 统一事件 | 含义 | Claude Code | Codex | CodeBuddy | Cursor | Hermes |
+|---------|------|:-----------:|:-----:|:---------:|:------:|:------:|
+| `permission_required` | 需要用户授权执行操作 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `input_required` | 等待用户输入 | ✅ | — | ✅ | — | — |
+| `run_completed` | 任务执行完成 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `run_failed` | 任务执行失败 | ✅ | — | ✅ | ✅ | — |
 
 ### Agent 通知设置
 
@@ -197,6 +199,15 @@ CodeBuddy 推荐事件:
   ├─ input_required       ← 空闲超过 60s 时通知
   ├─ run_completed        ← 每轮对话完成时通知
   └─ run_failed           ← 工具执行失败时通知
+
+Cursor 推荐事件:
+  ├─ permission_required  ← shell 命令执行前通知（⚠️ 含所有命令）
+  ├─ run_completed        ← 任务完成时通知
+  └─ run_failed           ← 工具执行失败时通知
+
+Hermes 推荐事件:
+  ├─ permission_required  ← 高危命令需要授权时通知
+  └─ run_completed        ← 每轮对话完成时通知
 ```
 
 ### Hooks 配置格式
@@ -356,6 +367,48 @@ CodeBuddy 推荐事件:
 }
 ```
 
+#### Cursor（`~/.cursor/hooks.json`）
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "/usr/local/bin/agent-notify handle-cursor-hook permission_required"
+      }
+    ],
+    "stop": [
+      {
+        "command": "/usr/local/bin/agent-notify handle-cursor-hook run_completed"
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "/usr/local/bin/agent-notify handle-cursor-hook run_failed"
+      }
+    ]
+  }
+}
+```
+
+> ⚠️ Cursor 的 `beforeShellExecution` 对所有 shell 命令触发（不止授权操作），启用 `permission_required` 通知可能会比较频繁。`input_required` 事件 Cursor 目前不支持。
+
+#### Hermes（`~/.hermes/config.yaml`）
+
+```yaml
+hooks:
+  pre_approval_request:
+    - command: "/usr/local/bin/agent-notify handle-hermes-hook permission_required"
+      timeout: 10
+  post_llm_call:
+    - command: "/usr/local/bin/agent-notify handle-hermes-hook run_completed"
+      timeout: 10
+hooks_auto_accept: true
+```
+
+> Hermes Shell Hooks 不支持 `run_failed` 和 `input_required`。
+
 ---
 
 ### VS Code 扩展 / Codex.app 支持
@@ -371,6 +424,8 @@ CodeBuddy 推荐事件:
 | Codex（已配置） | `~/.codex/hooks.json` 或 `~/.codex/config.toml` 存在 |
 | CodeBuddy IDE 扩展 | `~/.codebuddy/settings.json` 存在 |
 | CodeBuddy CLI | `codebuddy` 命令在 PATH 中 |
+| Cursor IDE | `~/.cursor/` 目录存在 或 `/Applications/Cursor.app` |
+| Hermes CLI | `~/.hermes/` 目录存在 或 `hermes` 命令在 PATH 中 |
 
 即使没有命令行版 CLI，你也可以正常配置 hooks：
 

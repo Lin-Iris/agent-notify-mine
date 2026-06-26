@@ -35,11 +35,13 @@ type OutputWriter interface {
 
 // Service handles the init/setup flow for agent-notify.
 type Service struct {
-	claudeIntegration   agentintegrations.Integration
-	codexIntegration    agentintegrations.Integration
+	claudeIntegration    agentintegrations.Integration
+	codexIntegration     agentintegrations.Integration
 	codebuddyIntegration agentintegrations.Integration
-	feishuPreparer      FeishuPreparer
-	configLoader        ConfigLoader
+	cursorIntegration    agentintegrations.Integration
+	hermesIntegration    agentintegrations.Integration
+	feishuPreparer       FeishuPreparer
+	configLoader         ConfigLoader
 }
 
 // ConfigLoader loads and saves configuration.
@@ -59,9 +61,11 @@ type SetupResult struct {
 // NewService creates a new setup service.
 func NewService(opts ...Option) *Service {
 	s := &Service{
-		claudeIntegration: agentintegrations.NewClaudeIntegration(),
-		codexIntegration:  agentintegrations.NewCodexIntegration(),
+		claudeIntegration:    agentintegrations.NewClaudeIntegration(),
+		codexIntegration:     agentintegrations.NewCodexIntegration(),
 		codebuddyIntegration: agentintegrations.NewCodeBuddyIntegration(),
+		cursorIntegration:    agentintegrations.NewCursorIntegration(),
+		hermesIntegration:    agentintegrations.NewHermesIntegration(),
 	}
 
 	for _, opt := range opts {
@@ -87,6 +91,16 @@ func WithCodexIntegration(i agentintegrations.Integration) Option {
 // WithCodeBuddyIntegration sets the CodeBuddy integration.
 func WithCodeBuddyIntegration(i agentintegrations.Integration) Option {
 	return func(s *Service) { s.codebuddyIntegration = i }
+}
+
+// WithCursorIntegration sets the Cursor integration.
+func WithCursorIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.cursorIntegration = i }
+}
+
+// WithHermesIntegration sets the Hermes integration.
+func WithHermesIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.hermesIntegration = i }
 }
 
 // WithFeishuPreparer sets the Feishu preparer.
@@ -119,6 +133,26 @@ var codebuddyEventOptions = []PromptOption{
 	{Label: "等待输入 (input_required)", Value: "input_required"},
 	{Label: "任务完成 (run_completed)", Value: "run_completed"},
 	{Label: "任务失败 (run_failed)", Value: "run_failed"},
+}
+
+// cursorEventOptions 包含 Cursor hooks 当前支持的事件：
+// beforeShellExecution → permission_required（注意：对所有 shell 命令触发，不止授权操作）
+// stop (status=completed) → run_completed
+// postToolUseFailure → run_failed
+// input_required Cursor 目前没有对应 hook。
+var cursorEventOptions = []PromptOption{
+	{Label: "需要授权 (permission_required)", Value: "permission_required"},
+	{Label: "任务完成 (run_completed)", Value: "run_completed"},
+	{Label: "任务失败 (run_failed)", Value: "run_failed"},
+}
+
+// hermesEventOptions 包含 Hermes shell hooks 当前支持的事件：
+// pre_approval_request → permission_required
+// post_llm_call → run_completed
+// run_failed / input_required Hermes 目前没有对应 hook。
+var hermesEventOptions = []PromptOption{
+	{Label: "需要授权 (permission_required)", Value: "permission_required"},
+	{Label: "任务完成 (run_completed)", Value: "run_completed"},
 }
 
 // Run executes the init flow.
@@ -249,6 +283,22 @@ func (s *Service) disableAgentNotification(cfg config.Config, path, agent string
 		cfg.Notify.CodeBuddy.Channels.Bark.Enabled = false
 		cfg.Notify.CodeBuddy.Events = nil
 		cfg.Agent.CodeBuddy.Enabled = false
+	case "cursor":
+		cfg.Notify.Cursor.Channels.Feishu.Enabled = false
+		cfg.Notify.Cursor.Channels.System.Enabled = false
+		cfg.Notify.Cursor.Channels.WechatWork.Enabled = false
+		cfg.Notify.Cursor.Channels.DingTalk.Enabled = false
+		cfg.Notify.Cursor.Channels.Bark.Enabled = false
+		cfg.Notify.Cursor.Events = nil
+		cfg.Agent.Cursor.Enabled = false
+	case "hermes":
+		cfg.Notify.Hermes.Channels.Feishu.Enabled = false
+		cfg.Notify.Hermes.Channels.System.Enabled = false
+		cfg.Notify.Hermes.Channels.WechatWork.Enabled = false
+		cfg.Notify.Hermes.Channels.DingTalk.Enabled = false
+		cfg.Notify.Hermes.Channels.Bark.Enabled = false
+		cfg.Notify.Hermes.Events = nil
+		cfg.Agent.Hermes.Enabled = false
 	}
 
 	if err := s.saveConfig(path, cfg); err != nil {
@@ -271,6 +321,10 @@ func agentName(agent string) string {
 		return "Codex"
 	case "codebuddy":
 		return "CodeBuddy"
+	case "cursor":
+		return "Cursor"
+	case "hermes":
+		return "Hermes"
 	default:
 		return agent
 	}

@@ -226,6 +226,8 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 		agentintegrations.NewClaudeIntegration(),
 		agentintegrations.NewCodexIntegration(),
 		agentintegrations.NewCodeBuddyIntegration(),
+		agentintegrations.NewCursorIntegration(),
+		agentintegrations.NewHermesIntegration(),
 	} {
 		settingsPath, err := integ.SettingsPath("user")
 		if err != nil {
@@ -292,6 +294,40 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 	defaultCfg.Notify.CodeBuddy.Channels.WxPusher.AppToken = ""
 	defaultCfg.Notify.CodeBuddy.Channels.WxPusher.UID = ""
 	defaultCfg.Notify.CodeBuddy.Events = nil
+		// Clear Cursor channel toggles
+		defaultCfg.Notify.Cursor.Channels.Feishu.Enabled = false
+		defaultCfg.Notify.Cursor.Channels.System.Enabled = false
+		defaultCfg.Notify.Cursor.Channels.WechatWork.Enabled = false
+		defaultCfg.Notify.Cursor.Channels.WechatWork.WebhookURL = ""
+		defaultCfg.Notify.Cursor.Channels.DingTalk.Enabled = false
+		defaultCfg.Notify.Cursor.Channels.DingTalk.WebhookURL = ""
+		defaultCfg.Notify.Cursor.Channels.Bark.Enabled = false
+		defaultCfg.Notify.Cursor.Channels.Bark.WebhookURL = ""
+		defaultCfg.Notify.Cursor.Channels.ServerChan.Enabled = false
+		defaultCfg.Notify.Cursor.Channels.ServerChan.SendKey = ""
+		defaultCfg.Notify.Cursor.Channels.PushPlus.Enabled = false
+		defaultCfg.Notify.Cursor.Channels.PushPlus.Token = ""
+		defaultCfg.Notify.Cursor.Channels.WxPusher.Enabled = false
+		defaultCfg.Notify.Cursor.Channels.WxPusher.AppToken = ""
+		defaultCfg.Notify.Cursor.Channels.WxPusher.UID = ""
+		defaultCfg.Notify.Cursor.Events = nil
+		// Clear Hermes channel toggles
+		defaultCfg.Notify.Hermes.Channels.Feishu.Enabled = false
+		defaultCfg.Notify.Hermes.Channels.System.Enabled = false
+		defaultCfg.Notify.Hermes.Channels.WechatWork.Enabled = false
+		defaultCfg.Notify.Hermes.Channels.WechatWork.WebhookURL = ""
+		defaultCfg.Notify.Hermes.Channels.DingTalk.Enabled = false
+		defaultCfg.Notify.Hermes.Channels.DingTalk.WebhookURL = ""
+		defaultCfg.Notify.Hermes.Channels.Bark.Enabled = false
+		defaultCfg.Notify.Hermes.Channels.Bark.WebhookURL = ""
+		defaultCfg.Notify.Hermes.Channels.ServerChan.Enabled = false
+		defaultCfg.Notify.Hermes.Channels.ServerChan.SendKey = ""
+		defaultCfg.Notify.Hermes.Channels.PushPlus.Enabled = false
+		defaultCfg.Notify.Hermes.Channels.PushPlus.Token = ""
+		defaultCfg.Notify.Hermes.Channels.WxPusher.Enabled = false
+		defaultCfg.Notify.Hermes.Channels.WxPusher.AppToken = ""
+		defaultCfg.Notify.Hermes.Channels.WxPusher.UID = ""
+		defaultCfg.Notify.Hermes.Events = nil
 	if err := config.Save(cfgPath, defaultCfg); err != nil {
 		return fmt.Errorf("保存默认配置失败: %w", err)
 	}

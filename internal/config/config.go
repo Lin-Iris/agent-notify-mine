@@ -21,6 +21,8 @@ type AgentConfig struct {
 	ClaudeCode AgentTargetConfig `yaml:"claude_code"` // Claude Code 配置
 	Codex      AgentTargetConfig `yaml:"codex"`       // Codex 配置
 	CodeBuddy  AgentTargetConfig `yaml:"codebuddy"`   // CodeBuddy 配置
+	Cursor     AgentTargetConfig `yaml:"cursor"`      // Cursor 配置
+	Hermes     AgentTargetConfig `yaml:"hermes"`      // Hermes 配置
 }
 
 // AgentTargetConfig holds configuration for a specific agent.
@@ -34,6 +36,8 @@ type NotifyConfig struct {
 	ClaudeCode AgentNotifyConfig `yaml:"claude_code"` // Claude Code 通知配置
 	Codex      AgentNotifyConfig `yaml:"codex"`       // Codex 通知配置
 	CodeBuddy  AgentNotifyConfig `yaml:"codebuddy"`   // CodeBuddy 通知配置
+	Cursor     AgentNotifyConfig `yaml:"cursor"`      // Cursor 通知配置
+	Hermes     AgentNotifyConfig `yaml:"hermes"`      // Hermes 通知配置
 }
 
 // AgentNotifyConfig holds notification configuration for a single agent.
@@ -122,6 +126,14 @@ func Default() Config {
 				Enabled:      false,
 				InstallScope: "user",
 			},
+			Cursor: AgentTargetConfig{
+				Enabled:      false,
+				InstallScope: "user",
+			},
+			Hermes: AgentTargetConfig{
+				Enabled:      false,
+				InstallScope: "user",
+			},
 		},
 		Notify: NotifyConfig{
 			ClaudeCode: AgentNotifyConfig{
@@ -154,6 +166,32 @@ func Default() Config {
 				Events: append([]string(nil), allEvents...),
 				Channels: ChannelsConfig{
 					System:     ChannelConfig{Enabled: true},
+					Feishu:     ChannelConfig{Enabled: false},
+					WechatWork: WechatWorkChannelConfig{Enabled: false, WebhookURL: ""},
+					DingTalk:   DingTalkChannelConfig{Enabled: false, WebhookURL: ""},
+					Bark:       BarkChannelConfig{Enabled: false, WebhookURL: ""},
+					ServerChan: ServerChanChannelConfig{Enabled: false, SendKey: ""},
+					PushPlus:   PushPlusChannelConfig{Enabled: false, Token: ""},
+					WxPusher:   WxPusherChannelConfig{Enabled: false, AppToken: "", UID: ""},
+				},
+			},
+			Cursor: AgentNotifyConfig{
+				Events: []string{"permission_required", "run_completed", "run_failed"},
+				Channels: ChannelsConfig{
+					System:     ChannelConfig{Enabled: false},
+					Feishu:     ChannelConfig{Enabled: false},
+					WechatWork: WechatWorkChannelConfig{Enabled: false, WebhookURL: ""},
+					DingTalk:   DingTalkChannelConfig{Enabled: false, WebhookURL: ""},
+					Bark:       BarkChannelConfig{Enabled: false, WebhookURL: ""},
+					ServerChan: ServerChanChannelConfig{Enabled: false, SendKey: ""},
+					PushPlus:   PushPlusChannelConfig{Enabled: false, Token: ""},
+					WxPusher:   WxPusherChannelConfig{Enabled: false, AppToken: "", UID: ""},
+				},
+			},
+			Hermes: AgentNotifyConfig{
+				Events: []string{"permission_required", "run_completed"},
+				Channels: ChannelsConfig{
+					System:     ChannelConfig{Enabled: false},
 					Feishu:     ChannelConfig{Enabled: false},
 					WechatWork: WechatWorkChannelConfig{Enabled: false, WebhookURL: ""},
 					DingTalk:   DingTalkChannelConfig{Enabled: false, WebhookURL: ""},
@@ -224,6 +262,12 @@ func Load(path string) (Config, error) {
 	if cfg.Agent.CodeBuddy.InstallScope == "" {
 		cfg.Agent.CodeBuddy.InstallScope = "user"
 	}
+	if cfg.Agent.Cursor.InstallScope == "" {
+		cfg.Agent.Cursor.InstallScope = "user"
+	}
+	if cfg.Agent.Hermes.InstallScope == "" {
+		cfg.Agent.Hermes.InstallScope = "user"
+	}
 	if len(cfg.Notify.CodeBuddy.Events) == 0 {
 		cfg.Notify.CodeBuddy.Events = append([]string(nil), cfg.Notify.ClaudeCode.Events...)
 	}
@@ -237,6 +281,20 @@ func Load(path string) (Config, error) {
 		!cfg.Notify.CodeBuddy.Channels.WxPusher.Enabled {
 		cfg.Notify.CodeBuddy.Channels.System.Enabled = true
 	}
+	if len(cfg.Notify.Cursor.Events) == 0 {
+		cfg.Notify.Cursor.Events = []string{"permission_required", "run_completed", "run_failed"}
+	}
+	if !cfg.Notify.Cursor.Channels.System.Enabled &&
+		allChannelsDisabled(cfg.Notify.Cursor.Channels) {
+		cfg.Notify.Cursor.Channels.System.Enabled = true
+	}
+	if len(cfg.Notify.Hermes.Events) == 0 {
+		cfg.Notify.Hermes.Events = []string{"permission_required", "run_completed"}
+	}
+	if !cfg.Notify.Hermes.Channels.System.Enabled &&
+		allChannelsDisabled(cfg.Notify.Hermes.Channels) {
+		cfg.Notify.Hermes.Channels.System.Enabled = true
+	}
 	if cfg.Behavior.DedupeSeconds == 0 {
 		cfg.Behavior.DedupeSeconds = 60
 	}
@@ -248,6 +306,18 @@ func Load(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// allChannelsDisabled checks if no notification channels are enabled.
+func allChannelsDisabled(ch ChannelsConfig) bool {
+	return !ch.System.Enabled &&
+		!ch.Feishu.Enabled &&
+		!ch.WechatWork.Enabled &&
+		!ch.DingTalk.Enabled &&
+		!ch.Bark.Enabled &&
+		!ch.ServerChan.Enabled &&
+		!ch.PushPlus.Enabled &&
+		!ch.WxPusher.Enabled
 }
 
 func Save(path string, cfg Config) error {

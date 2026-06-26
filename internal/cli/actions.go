@@ -68,6 +68,8 @@ func runInitFlow(ctx context.Context, streams Streams, prompter Prompter, config
 		setup.WithClaudeIntegration(agentintegrations.NewClaudeIntegration()),
 		setup.WithCodexIntegration(agentintegrations.NewCodexIntegration()),
 		setup.WithCodeBuddyIntegration(agentintegrations.NewCodeBuddyIntegration()),
+		setup.WithCursorIntegration(agentintegrations.NewCursorIntegration()),
+		setup.WithHermesIntegration(agentintegrations.NewHermesIntegration()),
 		setup.WithFeishuPreparer(&feishuPreparerAdapter{}),
 	)
 

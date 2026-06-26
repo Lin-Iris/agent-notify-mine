@@ -160,6 +160,10 @@ func notifyConfigForAgent(cfg config.Config, agent string) config.AgentNotifyCon
 		return cfg.Notify.Codex
 	case "codebuddy":
 		return cfg.Notify.CodeBuddy
+	case "cursor":
+		return cfg.Notify.Cursor
+	case "hermes":
+		return cfg.Notify.Hermes
 	default:
 		return cfg.Notify.ClaudeCode
 	}

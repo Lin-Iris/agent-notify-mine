@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/hellolib/agent-notify/internal/agentintegrations"
 	"github.com/hellolib/agent-notify/internal/common"
@@ -36,7 +37,7 @@ func runMenu(ctx context.Context, streams Streams) error {
 
 	for {
 		choice, err := prompter.Select("", []PromptOption{
-			{Label: "Agent通知配置", Value: "init"},
+			{Label: "Agent配置", Value: "init"},
 			{Label: "消息渠道配置", Value: "channels"},
 			{Label: "测试通知", Value: "test"},
 			{Label: "环境诊断", Value: "doctor"},
@@ -193,11 +194,23 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 		fmt.Fprintln(streams.Stdout, "已取消")
 		return nil
 	}
+	return cleanConfig(streams, false)
+}
 
+func cleanConfig(streams Streams, purge bool) error {
 	// 清理 agent-notify 配置
 	cfgPath, err := config.DefaultPath()
 	if err != nil {
 		return err
+	}
+	if err := appendAudit("clean start"); err != nil {
+		fmt.Fprintf(streams.Stdout, "⚠️  写入清理审计失败: %v\n", err)
+	}
+	if err := rejectPending("agent-notify clean"); err != nil {
+		fmt.Fprintf(streams.Stdout, "⚠️  拒绝待审批失败: %v\n", err)
+	}
+	if err := killProfile(""); err != nil {
+		fmt.Fprintf(streams.Stdout, "⚠️  停止受控进程失败: %v\n", err)
 	}
 	if err := os.Remove(cfgPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("删除配置文件失败: %w", err)
@@ -220,6 +233,28 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 	if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("删除日志文件失败: %w", err)
 	}
+	for _, pathFn := range []func() (string, error){
+		config.ApprovalPath,
+		config.ProcessRegistryPath,
+		config.AuditLogPath,
+		config.BrokerPIDPath,
+		config.ThreadsPath,
+		config.TasksPath,
+		config.ViewsPath,
+	} {
+		path, err := pathFn()
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("删除 broker 状态失败: %w", err)
+		}
+	}
+	if home, err := config.HomeDir(); err == nil {
+		if err := os.RemoveAll(filepath.Join(home, "logs")); err != nil {
+			return fmt.Errorf("删除运行日志失败: %w", err)
+		}
+	}
 
 	// 清理 Claude / Codex 中由本插件写入的 hook（保留用户挂载的其他 hook）
 	for _, integ := range []agentintegrations.Integration{
@@ -240,9 +275,21 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 		}
 		fmt.Fprintf(streams.Stdout, "✅ 已清理 %s hooks (%s)\n", integ.Name(), settingsPath)
 	}
+	if purge {
+		if home, err := config.HomeDir(); err == nil {
+			if err := os.RemoveAll(home); err != nil {
+				return fmt.Errorf("删除 agent-notify 目录失败: %w", err)
+			}
+		}
+		fmt.Fprintln(streams.Stdout, "✅ 已彻底清理 agent-notify 配置、状态、审批、进程登记和日志")
+		return nil
+	}
 
 	// 保存一个干净的默认配置（所有通知都关闭）
 	defaultCfg := config.Default()
+	defaultCfg.Broker.Enabled = false
+	defaultCfg.Broker.LongConnection = false
+	defaultCfg.Approval.Enabled = false
 	// Clear ClaudeCode channel toggles and events
 	defaultCfg.Notify.ClaudeCode.Channels.Feishu.Enabled = false
 	defaultCfg.Notify.ClaudeCode.Channels.System.Enabled = false
@@ -252,13 +299,13 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 	defaultCfg.Notify.ClaudeCode.Channels.DingTalk.WebhookURL = ""
 	defaultCfg.Notify.ClaudeCode.Channels.Bark.Enabled = false
 	defaultCfg.Notify.ClaudeCode.Channels.Bark.WebhookURL = ""
-		defaultCfg.Notify.ClaudeCode.Channels.ServerChan.Enabled = false
-		defaultCfg.Notify.ClaudeCode.Channels.ServerChan.SendKey = ""
-		defaultCfg.Notify.ClaudeCode.Channels.PushPlus.Enabled = false
-		defaultCfg.Notify.ClaudeCode.Channels.PushPlus.Token = ""
-		defaultCfg.Notify.ClaudeCode.Channels.WxPusher.Enabled = false
-		defaultCfg.Notify.ClaudeCode.Channels.WxPusher.AppToken = ""
-		defaultCfg.Notify.ClaudeCode.Channels.WxPusher.UID = ""
+	defaultCfg.Notify.ClaudeCode.Channels.ServerChan.Enabled = false
+	defaultCfg.Notify.ClaudeCode.Channels.ServerChan.SendKey = ""
+	defaultCfg.Notify.ClaudeCode.Channels.PushPlus.Enabled = false
+	defaultCfg.Notify.ClaudeCode.Channels.PushPlus.Token = ""
+	defaultCfg.Notify.ClaudeCode.Channels.WxPusher.Enabled = false
+	defaultCfg.Notify.ClaudeCode.Channels.WxPusher.AppToken = ""
+	defaultCfg.Notify.ClaudeCode.Channels.WxPusher.UID = ""
 	defaultCfg.Notify.ClaudeCode.Events = nil
 	// Clear Codex channel toggles
 	defaultCfg.Notify.Codex.Channels.Feishu.Enabled = false
@@ -269,13 +316,13 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 	defaultCfg.Notify.Codex.Channels.DingTalk.WebhookURL = ""
 	defaultCfg.Notify.Codex.Channels.Bark.Enabled = false
 	defaultCfg.Notify.Codex.Channels.Bark.WebhookURL = ""
-		defaultCfg.Notify.Codex.Channels.ServerChan.Enabled = false
-		defaultCfg.Notify.Codex.Channels.ServerChan.SendKey = ""
-		defaultCfg.Notify.Codex.Channels.PushPlus.Enabled = false
-		defaultCfg.Notify.Codex.Channels.PushPlus.Token = ""
-		defaultCfg.Notify.Codex.Channels.WxPusher.Enabled = false
-		defaultCfg.Notify.Codex.Channels.WxPusher.AppToken = ""
-		defaultCfg.Notify.Codex.Channels.WxPusher.UID = ""
+	defaultCfg.Notify.Codex.Channels.ServerChan.Enabled = false
+	defaultCfg.Notify.Codex.Channels.ServerChan.SendKey = ""
+	defaultCfg.Notify.Codex.Channels.PushPlus.Enabled = false
+	defaultCfg.Notify.Codex.Channels.PushPlus.Token = ""
+	defaultCfg.Notify.Codex.Channels.WxPusher.Enabled = false
+	defaultCfg.Notify.Codex.Channels.WxPusher.AppToken = ""
+	defaultCfg.Notify.Codex.Channels.WxPusher.UID = ""
 	defaultCfg.Notify.Codex.Events = nil
 	// Clear CodeBuddy channel toggles
 	defaultCfg.Notify.CodeBuddy.Channels.Feishu.Enabled = false
@@ -294,40 +341,40 @@ func runCleanConfig(streams Streams, prompter Prompter) error {
 	defaultCfg.Notify.CodeBuddy.Channels.WxPusher.AppToken = ""
 	defaultCfg.Notify.CodeBuddy.Channels.WxPusher.UID = ""
 	defaultCfg.Notify.CodeBuddy.Events = nil
-		// Clear Cursor channel toggles
-		defaultCfg.Notify.Cursor.Channels.Feishu.Enabled = false
-		defaultCfg.Notify.Cursor.Channels.System.Enabled = false
-		defaultCfg.Notify.Cursor.Channels.WechatWork.Enabled = false
-		defaultCfg.Notify.Cursor.Channels.WechatWork.WebhookURL = ""
-		defaultCfg.Notify.Cursor.Channels.DingTalk.Enabled = false
-		defaultCfg.Notify.Cursor.Channels.DingTalk.WebhookURL = ""
-		defaultCfg.Notify.Cursor.Channels.Bark.Enabled = false
-		defaultCfg.Notify.Cursor.Channels.Bark.WebhookURL = ""
-		defaultCfg.Notify.Cursor.Channels.ServerChan.Enabled = false
-		defaultCfg.Notify.Cursor.Channels.ServerChan.SendKey = ""
-		defaultCfg.Notify.Cursor.Channels.PushPlus.Enabled = false
-		defaultCfg.Notify.Cursor.Channels.PushPlus.Token = ""
-		defaultCfg.Notify.Cursor.Channels.WxPusher.Enabled = false
-		defaultCfg.Notify.Cursor.Channels.WxPusher.AppToken = ""
-		defaultCfg.Notify.Cursor.Channels.WxPusher.UID = ""
-		defaultCfg.Notify.Cursor.Events = nil
-		// Clear Hermes channel toggles
-		defaultCfg.Notify.Hermes.Channels.Feishu.Enabled = false
-		defaultCfg.Notify.Hermes.Channels.System.Enabled = false
-		defaultCfg.Notify.Hermes.Channels.WechatWork.Enabled = false
-		defaultCfg.Notify.Hermes.Channels.WechatWork.WebhookURL = ""
-		defaultCfg.Notify.Hermes.Channels.DingTalk.Enabled = false
-		defaultCfg.Notify.Hermes.Channels.DingTalk.WebhookURL = ""
-		defaultCfg.Notify.Hermes.Channels.Bark.Enabled = false
-		defaultCfg.Notify.Hermes.Channels.Bark.WebhookURL = ""
-		defaultCfg.Notify.Hermes.Channels.ServerChan.Enabled = false
-		defaultCfg.Notify.Hermes.Channels.ServerChan.SendKey = ""
-		defaultCfg.Notify.Hermes.Channels.PushPlus.Enabled = false
-		defaultCfg.Notify.Hermes.Channels.PushPlus.Token = ""
-		defaultCfg.Notify.Hermes.Channels.WxPusher.Enabled = false
-		defaultCfg.Notify.Hermes.Channels.WxPusher.AppToken = ""
-		defaultCfg.Notify.Hermes.Channels.WxPusher.UID = ""
-		defaultCfg.Notify.Hermes.Events = nil
+	// Clear Cursor channel toggles
+	defaultCfg.Notify.Cursor.Channels.Feishu.Enabled = false
+	defaultCfg.Notify.Cursor.Channels.System.Enabled = false
+	defaultCfg.Notify.Cursor.Channels.WechatWork.Enabled = false
+	defaultCfg.Notify.Cursor.Channels.WechatWork.WebhookURL = ""
+	defaultCfg.Notify.Cursor.Channels.DingTalk.Enabled = false
+	defaultCfg.Notify.Cursor.Channels.DingTalk.WebhookURL = ""
+	defaultCfg.Notify.Cursor.Channels.Bark.Enabled = false
+	defaultCfg.Notify.Cursor.Channels.Bark.WebhookURL = ""
+	defaultCfg.Notify.Cursor.Channels.ServerChan.Enabled = false
+	defaultCfg.Notify.Cursor.Channels.ServerChan.SendKey = ""
+	defaultCfg.Notify.Cursor.Channels.PushPlus.Enabled = false
+	defaultCfg.Notify.Cursor.Channels.PushPlus.Token = ""
+	defaultCfg.Notify.Cursor.Channels.WxPusher.Enabled = false
+	defaultCfg.Notify.Cursor.Channels.WxPusher.AppToken = ""
+	defaultCfg.Notify.Cursor.Channels.WxPusher.UID = ""
+	defaultCfg.Notify.Cursor.Events = nil
+	// Clear Hermes channel toggles
+	defaultCfg.Notify.Hermes.Channels.Feishu.Enabled = false
+	defaultCfg.Notify.Hermes.Channels.System.Enabled = false
+	defaultCfg.Notify.Hermes.Channels.WechatWork.Enabled = false
+	defaultCfg.Notify.Hermes.Channels.WechatWork.WebhookURL = ""
+	defaultCfg.Notify.Hermes.Channels.DingTalk.Enabled = false
+	defaultCfg.Notify.Hermes.Channels.DingTalk.WebhookURL = ""
+	defaultCfg.Notify.Hermes.Channels.Bark.Enabled = false
+	defaultCfg.Notify.Hermes.Channels.Bark.WebhookURL = ""
+	defaultCfg.Notify.Hermes.Channels.ServerChan.Enabled = false
+	defaultCfg.Notify.Hermes.Channels.ServerChan.SendKey = ""
+	defaultCfg.Notify.Hermes.Channels.PushPlus.Enabled = false
+	defaultCfg.Notify.Hermes.Channels.PushPlus.Token = ""
+	defaultCfg.Notify.Hermes.Channels.WxPusher.Enabled = false
+	defaultCfg.Notify.Hermes.Channels.WxPusher.AppToken = ""
+	defaultCfg.Notify.Hermes.Channels.WxPusher.UID = ""
+	defaultCfg.Notify.Hermes.Events = nil
 	if err := config.Save(cfgPath, defaultCfg); err != nil {
 		return fmt.Errorf("保存默认配置失败: %w", err)
 	}

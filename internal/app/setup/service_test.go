@@ -2,6 +2,8 @@ package setup
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/hellolib/agent-notify/internal/config"
@@ -42,17 +44,28 @@ func (m *mockIntegration) IsHookInstalled(settingsPath string) (bool, error) {
 
 // mockPrompter implements Prompter for testing
 type mockPrompter struct {
-	selectIdx     int
-	selectResult  string
-	multiResult   []string
-	multiResults  [][]string
-	multiOptions  [][]PromptOption
-	confirmResult bool
-	inputResult   string
-	inputResults  []string
+	selectIdx      int
+	selectResult   string
+	selectResults  []string
+	selectMessages []string
+	selectOptions  [][]PromptOption
+	multiResult    []string
+	multiResults   [][]string
+	multiOptions   [][]PromptOption
+	confirmResult  bool
+	confirmCalled  bool
+	inputResult    string
+	inputResults   []string
 }
 
 func (m *mockPrompter) Select(message string, options []PromptOption, defaultValue string) (string, error) {
+	m.selectMessages = append(m.selectMessages, message)
+	m.selectOptions = append(m.selectOptions, options)
+	if len(m.selectResults) > 0 {
+		value := m.selectResults[0]
+		m.selectResults = m.selectResults[1:]
+		return value, nil
+	}
 	return m.selectResult, nil
 }
 
@@ -67,6 +80,7 @@ func (m *mockPrompter) MultiSelect(message string, options []PromptOption, defau
 }
 
 func (m *mockPrompter) Confirm(message string, defaultValue bool) (bool, error) {
+	m.confirmCalled = true
 	return m.confirmResult, nil
 }
 
@@ -85,18 +99,25 @@ type mockOutputWriter struct {
 }
 
 func (m *mockOutputWriter) Writef(format string, args ...any) {
-	m.output += format
+	m.output += fmt.Sprintf(format, args...)
 }
 
 // mockFeishuPreparer implements FeishuPreparer for testing
 type mockFeishuPreparer struct {
-	called bool
-	err    error
+	called  bool
+	prepare bool
+	err     error
+	cfg     FeishuConfig
 }
 
 func (m *mockFeishuPreparer) EnsureReady(ctx context.Context) error {
 	m.called = true
 	return m.err
+}
+
+func (m *mockFeishuPreparer) Prepare(ctx context.Context) (FeishuConfig, error) {
+	m.prepare = true
+	return m.cfg, m.err
 }
 
 type mockConfigLoader struct {
@@ -105,6 +126,22 @@ type mockConfigLoader struct {
 	savedPath   string
 	loadedCfg   config.Config
 	savedCfg    config.Config
+}
+
+type mockBrokerStarter struct {
+	called     bool
+	profile    string
+	configPath string
+	cfg        config.Config
+	err        error
+}
+
+func (m *mockBrokerStarter) Start(ctx context.Context, cfg config.Config, configPath, profile string) error {
+	m.called = true
+	m.profile = profile
+	m.configPath = configPath
+	m.cfg = cfg
+	return m.err
 }
 
 func (m *mockConfigLoader) Load(path string) (config.Config, error) {
@@ -130,11 +167,11 @@ func TestService_Name(t *testing.T) {
 }
 
 func TestService_NoAgentsDetected(t *testing.T) {
-		svc := NewService(
-			WithClaudeIntegration(&mockIntegration{name: "Claude Code", detectInstalled: false}),
-			WithCodexIntegration(&mockIntegration{name: "Codex", detectInstalled: false}),
-			WithCodeBuddyIntegration(&mockIntegration{name: "CodeBuddy", detectInstalled: false}),
-		)
+	svc := NewService(
+		WithClaudeIntegration(&mockIntegration{name: "Claude Code", detectInstalled: false}),
+		WithCodexIntegration(&mockIntegration{name: "Codex", detectInstalled: false}),
+		WithCodeBuddyIntegration(&mockIntegration{name: "CodeBuddy", detectInstalled: false}),
+	)
 
 	prompter := &mockPrompter{}
 	output := &mockOutputWriter{}
@@ -158,8 +195,8 @@ func TestService_ClaudeIntegration(t *testing.T) {
 	)
 
 	prompter := &mockPrompter{
-		selectResult: "claude",
-		multiResult:  []string{"feishu", "system"},
+		selectResults: []string{"claude", setupModeNotify},
+		multiResult:   []string{"feishu", "system"},
 	}
 	output := &mockOutputWriter{}
 
@@ -187,8 +224,8 @@ func TestService_CodexIntegration(t *testing.T) {
 	)
 
 	prompter := &mockPrompter{
-		selectResult: "codex",
-		multiResult:  []string{"feishu", "system"},
+		selectResults: []string{"codex", setupModeNotify},
+		multiResult:   []string{"feishu", "system"},
 	}
 	output := &mockOutputWriter{}
 
@@ -212,7 +249,7 @@ func TestService_UsesInjectedConfigLoader(t *testing.T) {
 		WithCodexIntegration(&mockIntegration{name: "Codex", detectInstalled: false}),
 		WithConfigLoader(loader),
 	)
-	prompter := &mockPrompter{selectResult: "claude", multiResult: []string{"system"}}
+	prompter := &mockPrompter{selectResults: []string{"claude", setupModeNotify}, multiResult: []string{"system"}}
 	output := &mockOutputWriter{}
 
 	_, err := svc.Run(context.Background(), prompter, output, "", "/tmp/agent-notify")
@@ -224,6 +261,114 @@ func TestService_UsesInjectedConfigLoader(t *testing.T) {
 	}
 	if loader.savedPath != "/tmp/injected-config.yaml" {
 		t.Fatalf("savedPath = %q, want %q", loader.savedPath, "/tmp/injected-config.yaml")
+	}
+}
+
+func TestService_RemoteFeishuConversationSavesClaudeProfile(t *testing.T) {
+	loader := &mockConfigLoader{
+		defaultPath: "/tmp/injected-config.yaml",
+		loadedCfg:   config.Default(),
+	}
+	feishu := &mockFeishuPreparer{cfg: FeishuConfig{
+		AppID:      "scan_app",
+		AppSecret:  "scan_secret",
+		UserOpenID: "ou_owner",
+		UserName:   "Victoria",
+	}}
+	broker := &mockBrokerStarter{}
+	svc := NewService(
+		WithClaudeIntegration(&mockIntegration{name: "Claude Code", detectInstalled: true, settingsPath: "/tmp/.claude/settings.json"}),
+		WithCodexIntegration(&mockIntegration{name: "Codex", detectInstalled: false}),
+		WithFeishuPreparer(feishu),
+		WithBrokerStarter(broker),
+		WithConfigLoader(loader),
+	)
+	prompter := &mockPrompter{
+		selectResults: []string{"claude", setupModeRemote},
+		confirmResult: true,
+	}
+	output := &mockOutputWriter{}
+
+	result, err := svc.Run(context.Background(), prompter, output, "", "/tmp/agent-notify")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Agent != "claude" {
+		t.Fatalf("agent = %q, want claude", result.Agent)
+	}
+	if !feishu.prepare {
+		t.Fatal("remote setup should call Feishu Prepare")
+	}
+	profile := loader.savedCfg.Profiles["claude-main"]
+	if profile.Agent != "claude" || !profile.Enabled {
+		t.Fatalf("profile = %#v, want enabled claude profile", profile)
+	}
+	if profile.Feishu.AppID != "scan_app" || profile.Feishu.AppSecret != "scan_secret" || profile.Feishu.OwnerOpenID != "ou_owner" {
+		t.Fatalf("profile feishu = %#v, want scanned config", profile.Feishu)
+	}
+	if broker.profile != "claude-main" || !broker.called {
+		t.Fatalf("broker start = called %v profile %q, want claude-main", broker.called, broker.profile)
+	}
+	if strings.Contains(output.output, "scan_secret") {
+		t.Fatalf("output leaked app secret: %q", output.output)
+	}
+}
+
+func TestService_RemoteFeishuConversationCanSkipBrokerStart(t *testing.T) {
+	loader := &mockConfigLoader{
+		defaultPath: "/tmp/injected-config.yaml",
+		loadedCfg:   config.Default(),
+	}
+	broker := &mockBrokerStarter{}
+	svc := NewService(
+		WithClaudeIntegration(&mockIntegration{name: "Claude Code", detectInstalled: false}),
+		WithCodexIntegration(&mockIntegration{name: "Codex", detectInstalled: true, settingsPath: "/tmp/.codex/config.toml"}),
+		WithFeishuPreparer(&mockFeishuPreparer{cfg: FeishuConfig{
+			AppID:      "codex_app",
+			AppSecret:  "codex_secret",
+			UserOpenID: "ou_codex",
+		}}),
+		WithBrokerStarter(broker),
+		WithConfigLoader(loader),
+	)
+	prompter := &mockPrompter{
+		selectResults: []string{"codex", setupModeRemote},
+		confirmResult: false,
+	}
+
+	if _, err := svc.Run(context.Background(), prompter, &mockOutputWriter{}, "", "/tmp/agent-notify"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	profile := loader.savedCfg.Profiles["codex-main"]
+	if profile.Agent != "codex" || profile.Feishu.AppID != "codex_app" {
+		t.Fatalf("codex profile = %#v, want scanned codex config", profile)
+	}
+	if broker.called {
+		t.Fatal("broker should not start when user declines")
+	}
+}
+
+func TestService_RemoteFeishuOptionHiddenForUnsupportedAgent(t *testing.T) {
+	svc := NewService(
+		WithClaudeIntegration(&mockIntegration{name: "Claude Code", detectInstalled: false}),
+		WithCodexIntegration(&mockIntegration{name: "Codex", detectInstalled: false}),
+		WithCodeBuddyIntegration(&mockIntegration{name: "CodeBuddy", detectInstalled: true, settingsPath: "/tmp/codebuddy"}),
+	)
+	prompter := &mockPrompter{
+		selectResult: "codebuddy",
+		multiResults: [][]string{
+			{"system"},
+			{"run_completed"},
+		},
+	}
+
+	if _, err := svc.Run(context.Background(), prompter, &mockOutputWriter{}, "/tmp/test-config.yaml", "/tmp/agent-notify"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	for _, msg := range prompter.selectMessages {
+		if msg == "选择配置类型" {
+			t.Fatal("unsupported remote agent should not show setup mode selection")
+		}
 	}
 }
 

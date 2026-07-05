@@ -3,6 +3,7 @@ package claudehooks
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hellolib/agent-notify/internal/event"
@@ -34,6 +35,9 @@ func TestParsePermissionRequest(t *testing.T) {
 	}
 	if len(evt.RawPayload) == 0 {
 		t.Fatal("RawPayload should not be empty")
+	}
+	if !strings.Contains(evt.Body, "git status") {
+		t.Fatalf("Body = %q, want authorization content", evt.Body)
 	}
 }
 

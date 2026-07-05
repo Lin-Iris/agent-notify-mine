@@ -14,6 +14,9 @@ type Config struct {
 	Agent    AgentConfig    `yaml:"agent"`    // Agent 安装配置
 	Notify   NotifyConfig   `yaml:"notify"`   // 通知配置
 	Behavior BehaviorConfig `yaml:"behavior"` // 行为配置
+	Broker   BrokerConfig   `yaml:"broker,omitempty"`
+	Approval ApprovalConfig `yaml:"approval,omitempty"`
+	Profiles ProfilesConfig `yaml:"profiles,omitempty"`
 }
 
 // AgentConfig holds configuration for supported agents.
@@ -48,14 +51,14 @@ type AgentNotifyConfig struct {
 
 // ChannelsConfig holds configuration for notification channels.
 type ChannelsConfig struct {
-	Feishu     ChannelConfig              `yaml:"feishu"`      // 飞书通知配置
-	System     ChannelConfig              `yaml:"system"`      // 系统通知配置
-	WechatWork WechatWorkChannelConfig    `yaml:"wechat_work"` // 企业微信通知配置
-	DingTalk   DingTalkChannelConfig      `yaml:"dingtalk"`    // 钉钉通知配置
-	Bark       BarkChannelConfig          `yaml:"bark"`        // Bark 通知配置
-	ServerChan ServerChanChannelConfig    `yaml:"serverchan"`  // Server酱 通知配置
-	PushPlus   PushPlusChannelConfig      `yaml:"pushplus"`    // PushPlus 通知配置
-	WxPusher   WxPusherChannelConfig      `yaml:"wxpusher"`    // WxPusher 通知配置
+	Feishu     ChannelConfig           `yaml:"feishu"`      // 飞书通知配置
+	System     ChannelConfig           `yaml:"system"`      // 系统通知配置
+	WechatWork WechatWorkChannelConfig `yaml:"wechat_work"` // 企业微信通知配置
+	DingTalk   DingTalkChannelConfig   `yaml:"dingtalk"`    // 钉钉通知配置
+	Bark       BarkChannelConfig       `yaml:"bark"`        // Bark 通知配置
+	ServerChan ServerChanChannelConfig `yaml:"serverchan"`  // Server酱 通知配置
+	PushPlus   PushPlusChannelConfig   `yaml:"pushplus"`    // PushPlus 通知配置
+	WxPusher   WxPusherChannelConfig   `yaml:"wxpusher"`    // WxPusher 通知配置
 }
 
 // ChannelConfig holds configuration for a single notification channel.
@@ -83,7 +86,7 @@ type BarkChannelConfig struct {
 
 // ServerChanChannelConfig holds configuration for ServerChan (Server酱) WeChat push notifications.
 type ServerChanChannelConfig struct {
-	Enabled bool   `yaml:"enabled"` // 是否启用 Server酱 通知
+	Enabled bool   `yaml:"enabled"`  // 是否启用 Server酱 通知
 	SendKey string `yaml:"send_key"` // Server酱 SendKey (SCU 开头)
 }
 
@@ -95,9 +98,9 @@ type PushPlusChannelConfig struct {
 
 // WxPusherChannelConfig holds configuration for WxPusher WeChat push notifications.
 type WxPusherChannelConfig struct {
-	Enabled   bool   `yaml:"enabled"`    // 是否启用 WxPusher 通知
-	AppToken  string `yaml:"app_token"`  // WxPusher AppToken
-	UID       string `yaml:"uid"`        // WxPusher 用户 UID
+	Enabled  bool   `yaml:"enabled"`   // 是否启用 WxPusher 通知
+	AppToken string `yaml:"app_token"` // WxPusher AppToken
+	UID      string `yaml:"uid"`       // WxPusher 用户 UID
 }
 
 // BehaviorConfig holds behavior configuration.
@@ -105,6 +108,44 @@ type BehaviorConfig struct {
 	DedupeSeconds      int    `yaml:"dedupe_seconds"`       // 去重时间窗口（秒），同一事件在此时间内不重复发送
 	SendTimeoutSeconds int    `yaml:"send_timeout_seconds"` // 发送超时时间（秒）
 	Locale             string `yaml:"locale"`               // 语言设置，如: zh-CN, en-US
+}
+
+type BrokerConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	ActiveProfile  string   `yaml:"active_profile,omitempty"`
+	LongConnection bool     `yaml:"long_connection"`
+	SocketPath     string   `yaml:"socket_path,omitempty"`
+	OwnerOpenID    string   `yaml:"owner_open_id,omitempty"`
+	AdminOpenIDs   []string `yaml:"admin_open_ids,omitempty"`
+	AllowedOpenIDs []string `yaml:"allowed_open_ids,omitempty"`
+	AllowedChatIDs []string `yaml:"allowed_chat_ids,omitempty"`
+}
+
+type ApprovalConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
+	DefaultAccess  string `yaml:"default_access"`
+	MaxAccess      string `yaml:"max_access"`
+	CodexMode      string `yaml:"codex_mode"` // notify_only or hook_decision
+}
+
+type ProfilesConfig map[string]ProfileConfig
+
+type ProfileConfig struct {
+	Agent          string              `yaml:"agent"`
+	Workspace      string              `yaml:"workspace"`
+	Enabled        bool                `yaml:"enabled"`
+	PermissionMode string              `yaml:"permission_mode"`
+	Feishu         ProfileFeishuConfig `yaml:"feishu,omitempty"`
+	FeishuChatID   string              `yaml:"feishu_chat_id,omitempty"`
+	Workspaces     map[string]string   `yaml:"workspaces,omitempty"`
+}
+
+type ProfileFeishuConfig struct {
+	AppID       string `yaml:"app_id,omitempty"`
+	AppSecret   string `yaml:"app_secret,omitempty"`
+	OwnerOpenID string `yaml:"owner_open_id,omitempty"`
+	ChatID      string `yaml:"chat_id,omitempty"`
 }
 
 func Default() Config {
@@ -207,6 +248,34 @@ func Default() Config {
 			SendTimeoutSeconds: 5,
 			Locale:             "zh-CN",
 		},
+		Broker: BrokerConfig{
+			Enabled:        false,
+			ActiveProfile:  "claude-main",
+			LongConnection: true,
+		},
+		Approval: ApprovalConfig{
+			Enabled:        false,
+			TimeoutSeconds: 300,
+			DefaultAccess:  "workspace-write",
+			MaxAccess:      "workspace-write",
+			CodexMode:      "notify_only",
+		},
+		Profiles: ProfilesConfig{
+			"claude-main": {
+				Agent:          "claude",
+				Workspace:      "",
+				Enabled:        false,
+				PermissionMode: "workspace-write",
+				Workspaces:     map[string]string{},
+			},
+			"codex-main": {
+				Agent:          "codex",
+				Workspace:      "",
+				Enabled:        false,
+				PermissionMode: "workspace-write",
+				Workspaces:     map[string]string{},
+			},
+		},
 	}
 }
 
@@ -232,6 +301,70 @@ func LogPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".agent-notify", "agent-notify.log"), nil
+}
+
+func HomeDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".agent-notify"), nil
+}
+
+func ApprovalPath() (string, error) {
+	dir, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "approvals.json"), nil
+}
+
+func ProcessRegistryPath() (string, error) {
+	dir, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "processes.json"), nil
+}
+
+func AuditLogPath() (string, error) {
+	dir, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "audit.log"), nil
+}
+
+func BrokerPIDPath() (string, error) {
+	dir, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "broker.pid"), nil
+}
+
+func ThreadsPath() (string, error) {
+	dir, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "threads.json"), nil
+}
+
+func TasksPath() (string, error) {
+	dir, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "tasks.json"), nil
+}
+
+func ViewsPath() (string, error) {
+	dir, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "views.json"), nil
 }
 
 func Load(path string) (Config, error) {
@@ -284,16 +417,8 @@ func Load(path string) (Config, error) {
 	if len(cfg.Notify.Cursor.Events) == 0 {
 		cfg.Notify.Cursor.Events = []string{"permission_required", "run_completed", "run_failed"}
 	}
-	if !cfg.Notify.Cursor.Channels.System.Enabled &&
-		allChannelsDisabled(cfg.Notify.Cursor.Channels) {
-		cfg.Notify.Cursor.Channels.System.Enabled = true
-	}
 	if len(cfg.Notify.Hermes.Events) == 0 {
 		cfg.Notify.Hermes.Events = []string{"permission_required", "run_completed"}
-	}
-	if !cfg.Notify.Hermes.Channels.System.Enabled &&
-		allChannelsDisabled(cfg.Notify.Hermes.Channels) {
-		cfg.Notify.Hermes.Channels.System.Enabled = true
 	}
 	if cfg.Behavior.DedupeSeconds == 0 {
 		cfg.Behavior.DedupeSeconds = 60
@@ -303,6 +428,30 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Behavior.Locale == "" {
 		cfg.Behavior.Locale = "zh-CN"
+	}
+	if cfg.Broker.ActiveProfile == "" {
+		cfg.Broker.ActiveProfile = "claude-main"
+	}
+	if cfg.Approval.TimeoutSeconds == 0 {
+		cfg.Approval.TimeoutSeconds = 300
+	}
+	if cfg.Approval.DefaultAccess == "" {
+		cfg.Approval.DefaultAccess = "workspace-write"
+	}
+	if cfg.Approval.MaxAccess == "" {
+		cfg.Approval.MaxAccess = "workspace-write"
+	}
+	if cfg.Approval.CodexMode == "" {
+		cfg.Approval.CodexMode = "notify_only"
+	}
+	if cfg.Profiles == nil {
+		cfg.Profiles = ProfilesConfig{}
+	}
+	for name, profile := range cfg.Profiles {
+		if profile.Workspaces == nil {
+			profile.Workspaces = map[string]string{}
+			cfg.Profiles[name] = profile
+		}
 	}
 
 	return cfg, nil

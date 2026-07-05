@@ -5,7 +5,6 @@ agent-notify.exe
 .idea/
 .worktrees/
 node_modules/
-docs/
 dist/
 coverage/
 

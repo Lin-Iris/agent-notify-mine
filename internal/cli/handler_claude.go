@@ -30,7 +30,7 @@ func newHandleClaudeHookCmd(ctx context.Context, streams Streams) *cobra.Command
 			if err != nil {
 				return err
 			}
-			return claudehooks.Handle(ctx, cfg, statePath, logPath, streams.Stdin)
+			return claudehooks.Handle(ctx, cfg, statePath, logPath, streams.Stdin, streams.Stdout)
 		},
 	}
 }

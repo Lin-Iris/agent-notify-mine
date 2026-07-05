@@ -111,11 +111,14 @@ agent-notify init
 ```
 
 交互式向导会依次询问：
-1. 选择 Agent（Claude Code / Codex / CodeBuddy）
-2. 选择通知渠道（系统通知 / 微信 / 钉钉 / 飞书 / Bark...）
-3. 选择订阅的事件（需要授权 / 等待输入 / 任务完成 / 任务失败）
+1. 选择 Agent（Claude Code / Codex / CodeBuddy / Cursor / Hermes）
+2. 选择配置类型：
+   - **消息通知**：配置任务完成、需要授权、失败等事件提醒。
+   - **远程飞书对话**：为这个 Agent 配置手机飞书对话入口。
+3. 如果选择消息通知，再选择通知渠道（系统通知 / 微信 / 钉钉 / 飞书 / Bark...）和订阅事件。
+4. 如果选择远程飞书对话，按提示扫码绑定飞书机器人，并选择是否立即启动远程对话服务。
 
-配置完成后，Agent 每次触发事件都会推送通知到你的手机。
+配置消息通知后，Agent 每次触发事件都会推送通知到你的手机。配置远程飞书对话后，可以直接在手机飞书里给对应 Agent 发任务、看运行卡片和最终结果。
 
 > `agent-notify init` 会自动检测你安装的 Agent：
 > - `claude` 命令 → Claude Code CLI
@@ -158,11 +161,13 @@ export PATH="$HOME/.local/bin:$PATH"
 
 从 [Releases](https://github.com/Lin-Iris/agent-notify-mine/releases) 下载对应平台压缩包，解压到 `~/.local/bin/` 即可。
 
-安装后运行 `agent-notify init` 完成配置，然后 `agent-notify test` 测试通知。
+安装后运行 `agent-notify init` 完成配置。消息通知可用 `agent-notify test` 测试；远程飞书对话可在手机飞书对应机器人窗口里发送消息验证。
+
+第一次配置远程飞书对话前，建议先阅读 [`docs/first-run-troubleshooting.md`](docs/first-run-troubleshooting.md)。里面整理了 Codex.app / Claude Code VS Code 插件用户如何找到 CLI、workspace 未设置、卡片一直运行中、飞书没有回应等常见问题。
 
 ## 支持的 Agent
 
-目前支持 **3 个 Agent**，每个 Agent 可独立配置订阅的事件和通知渠道：
+目前支持 **5 个 Agent**，每个 Agent 可独立配置订阅的事件和通知渠道：
 
 | Agent | Hook 配置位置 | 支持的事件数 | 配置命令 |
 |-------|-------------|:----------:|---------|
@@ -435,6 +440,66 @@ agent-notify init
 ```
 
 配置完成后，在 Agent 内运行 `/hooks` 确认 hooks 已被加载并信任。
+
+> 注意：这里说的是“消息通知 hooks”。如果要使用“远程飞书对话”，电脑上必须能直接执行对应 CLI：Claude Code 需要 `claude`，Codex 需要 `codex`。只有 VS Code 插件或 Codex.app GUI 但没有可调用 CLI 时，普通通知可以工作，远程任务不能执行。
+
+#### Codex.app 的 CLI 路径
+
+如果只安装了 Codex.app，先检查 app 内附带的 CLI：
+
+```bash
+"/Applications/Codex.app/Contents/Resources/codex" --version
+```
+
+如果可用，写入用户级 PATH：
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "/Applications/Codex.app/Contents/Resources/codex" ~/.local/bin/codex
+export PATH="$HOME/.local/bin:$PATH"
+codex --version
+```
+
+如果 Codex.app 不在 `/Applications`，先定位：
+
+```bash
+mdfind 'kMDItemFSName == "Codex.app"'
+```
+
+然后把实际路径替换到 `ln -sf` 命令中。
+
+#### Claude Code VS Code 插件的 CLI 路径
+
+如果你只通过 VS Code 插件使用 Claude Code，先检查系统是否已有 CLI：
+
+```bash
+which claude
+claude --version
+```
+
+如果没有，可以在 VS Code / Cursor 扩展目录里查找候选可执行文件：
+
+```bash
+find ~/.vscode/extensions ~/.vscode-insiders/extensions ~/.cursor/extensions \
+  -type f -name claude 2>/dev/null | head
+```
+
+找到候选路径后测试：
+
+```bash
+"/实际/找到的/claude" --version
+```
+
+如果能输出版本，写入用户级 PATH：
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "/实际/找到的/claude" ~/.local/bin/claude
+export PATH="$HOME/.local/bin:$PATH"
+claude --version
+```
+
+如果插件目录里找不到可执行 `claude`，说明当前插件版本不能作为远程飞书对话的执行 CLI；消息通知仍可使用，远程飞书对话需要安装可调用的 Claude Code CLI。
 
 ---
 
@@ -817,15 +882,119 @@ event.Event                     notify.Message             SessionRecord
 
 | 方面 | 说明 |
 |------|------|
-| **CPU** | Hook 触发时进程运行 ~0.5-3s 即退出。无常驻进程 |
+| **CPU** | 普通通知模式只在 Hook 触发时短暂运行；broker 模式会有一个用户显式启动的常驻长连接进程 |
 | **内存** | Go 二进制 ~32MB 磁盘，运行时峰值 ~10-15MB RSS |
 | **网络** | 每次事件发 1-2 个 HTTPS POST |
 | **启动时间** | Go 冷启动 ~50ms |
 | **磁盘** | 配置 <1KB，状态 <10KB，日志可增长（建议定期清理） |
 
-**不是常驻服务。** 只在 hook 触发时短暂执行，对电脑性能无感知影响。
+普通通知模式不是常驻服务。启用飞书审批 broker 后，只有 `agent-notify broker run` 这一条长连接进程会常驻；关闭通信或执行 `agent-notify broker stop` 会拒绝待审批并停止受控 Agent 子进程。
+
+## 飞书远程对话 / 审批 Broker
+
+> Broker 控制的是本机 `codex` / `claude` CLI 子进程，不接管当前 Codex 桌面 App 聊天窗口。手机和电脑不需要在同一网络；电脑端 broker 主动连飞书云端，手机通过飞书下发任务。
+
+推荐入口仍然是：
+
+```bash
+agent-notify init
+# → 选择 Agent
+# → 选择配置类型: 远程飞书对话
+# → 按提示扫码绑定
+```
+
+远程飞书对话初版支持 Claude Code 和 Codex。配置后会自动写入对应 profile：
+
+| Agent | Profile | 手机飞书入口 |
+|------|---------|--------------|
+| Claude Code | `claude-main` | 该 Agent 绑定的飞书机器人 |
+| Codex | `codex-main` | 该 Agent 绑定的飞书机器人 |
+
+如果需要脚本化或高级配置，也可以使用：
+
+```bash
+agent-notify profile feishu setup claude-main
+agent-notify profile feishu setup codex-main
+```
+
+### 开启和控制
+
+```bash
+# 开启本机 broker 通信和审批；init 远程飞书对话完成后也可选择自动启动
+agent-notify broker start
+
+# 手动前台运行飞书长连接（调试时使用；broker start 会自动后台启动）
+agent-notify broker run
+
+# 向飞书发送一张显性控制卡
+agent-notify broker card
+
+# 查看历史对话列表卡
+agent-notify broker card --view threads
+```
+
+控制卡会显示当前 profile、通信状态、workspace、权限模式、待审批数量和运行任务数量，并提供这些按钮：
+
+| 按钮 | 行为 |
+|------|------|
+| 开启通信 | 启用 broker、启用审批、启用当前 profile |
+| 关闭通信 / 断开并清理 | 禁用 broker、关闭当前 profile、拒绝 pending approval、停止该 profile 的受控进程 |
+| 查看对话 | 打开当前项目的历史对话列表 |
+| 停止任务 | 停止当前 profile 下由 broker 启动的 Agent 子进程 |
+| 新建对话 | 在当前项目下新建一个对话窗口 |
+| 刷新状态 | 重新发送最新状态控制卡 |
+
+### 飞书命令
+
+飞书里给对应机器人发送普通文本，会进入该机器人绑定 profile 的受控 Codex / Claude Code 子进程。以下命令不会进入 Agent，而是由 broker 处理：
+
+```text
+/status
+/cd <path>
+/ws list
+/ws save <name>
+/ws use <name>
+/ws remove <name>
+/new
+/connect
+/stop
+/ps
+/exit <id|pid>
+/disconnect
+/threads
+/thread new <title>
+/thread use <id|#>
+/thread rename <id|#> <title>
+/thread archive <id|#>
+/tail <task_id|#> [lines]
+/log <task_id|#>
+/result <task_id|#>
+/home
+/back
+```
+
+审批消息绑定 `approval_id`、一次性 token、workspace、工具/命令摘要、发起时间和操作人 open_id。远程对话优先使用 profile 级 `feishu.owner_open_id` 鉴权；也可以在全局 `broker.admin_open_ids`、`broker.allowed_open_ids` 中显式加入其他操作人。
+
+更多手机端完整体验、跨网络前提、多对话窗口和日志查看说明见 [`docs/feishu-broker.md`](docs/feishu-broker.md)。
+
+首次使用或遇到异常时，见 [`docs/first-run-troubleshooting.md`](docs/first-run-troubleshooting.md)。常见问题包括：Codex.app CLI 路径、Claude Code VS Code 插件 CLI 路径、workspace 未设置、任务卡一直运行中、Codex `readonly database`、飞书没有回应。
 
 ## 卸载指南
+
+### 临时关闭远程对话
+
+如果只是暂时不用手机飞书远程对话，不需要卸载：
+
+```bash
+# 关闭当前 active profile
+agent-notify broker stop
+
+# 关闭指定 profile
+agent-notify broker stop --profile claude-main
+agent-notify broker stop --profile codex-main
+```
+
+也可以在飞书控制卡里点击“暂停通信”或“断开并清理”。普通消息通知不依赖 broker，关闭 broker 不会影响已经配置好的 hook 通知。
 
 ### `agent-notify clean` 清理内容
 
@@ -834,6 +1003,17 @@ event.Event                     notify.Message             SessionRecord
 | `~/.agent-notify/config.yaml`（通知渠道凭证、事件订阅） | ✅ 删 |
 | `~/.agent-notify/state.json`（去重状态） | ✅ 删 |
 | `~/.agent-notify/agent-notify.log`（日志） | ✅ 删 |
+| `~/.agent-notify/approvals.json`（待审批/审批历史） | ✅ 删 |
+| `~/.agent-notify/processes.json`（受控进程登记） | ✅ 删 |
+| `~/.agent-notify/threads.json`（项目对话窗口） | ✅ 删 |
+| `~/.agent-notify/tasks.json`（任务结果和日志索引） | ✅ 删 |
+| `~/.agent-notify/views.json`（飞书卡片导航状态） | ✅ 删 |
+| `~/.agent-notify/broker.pid`（broker 长连接进程登记） | ✅ 删 |
+| `~/.agent-notify/audit.log`（broker 审计日志） | ✅ 删 |
+| `~/.agent-notify/logs/`（受控任务运行日志） | ✅ 删 |
+| 当前 broker profile 的 pending approvals | ✅ 默认拒绝 |
+| broker 启动的 Codex / Claude Code 子进程 | ✅ 发送停止信号 |
+| 远程飞书对话 profile 配置（如 `claude-main` / `codex-main` 的 bot 凭证） | ✅ 重置 |
 | Claude Code hooks（`~/.claude/settings.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
 | Codex hooks（`~/.codex/hooks.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
 | CodeBuddy hooks（`~/.codebuddy/settings.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
@@ -849,7 +1029,7 @@ event.Event                     notify.Message             SessionRecord
 
 ```bash
 # 1. 清理配置和 hooks
-agent-notify clean
+agent-notify clean --purge
 
 # 2. 删二进制
 rm ~/.local/bin/agent-notify
@@ -861,21 +1041,23 @@ rm ~/.local/bin/agent-notify
 #### 方式二：npx 安装的
 
 ```bash
-# 1. 清理配置和 hooks
-npx agent-notify-mine clean
+# 1. 清理配置、hooks、broker 状态和日志
+npx agent-notify-mine clean --purge
 
-# 2. 删缓存目录
+# 2. 确认缓存目录已不存在；如果仍存在可以手动删除
 rm -rf ~/.agent-notify
 ```
 
 #### 方式三：从源码构建的
 
 ```bash
-agent-notify clean
+agent-notify clean --purge
 rm ~/.local/bin/agent-notify       # 或你 go build 指定的路径
 ```
 
 > ⚠️ `clean` 只删除 agent-notify 写入的 hooks 条目，`~/.claude/settings.json` 和 `~/.codebuddy/settings.json` 中的其他配置（模型、环境变量等）不受影响。
+>
+> 如果只想临时关闭通信，不要卸载，使用 `agent-notify broker stop` 或飞书控制卡里的“关闭通信 / 断开并清理”。
 >
 > 注：VS Code 扩展需在扩展面板手动卸载，与上述方式无关。
 

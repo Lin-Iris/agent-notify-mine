@@ -30,6 +30,9 @@ func TestParsePermissionRequest(t *testing.T) {
 	if !strings.Contains(evt.Body, "Bash") {
 		t.Fatalf("Body = %q, want tool name Bash", evt.Body)
 	}
+	if !strings.Contains(evt.Body, "git status") {
+		t.Fatalf("Body = %q, want authorization content", evt.Body)
+	}
 	if evt.Workspace != "/tmp/demo" {
 		t.Fatalf("Workspace = %q, want /tmp/demo", evt.Workspace)
 	}

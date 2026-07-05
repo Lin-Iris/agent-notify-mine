@@ -34,6 +34,13 @@ func NewRootCmd(ctx context.Context, streams Streams) *cobra.Command {
 	root.AddCommand(
 		newInitCmd(streams),
 		newClaudeCmd(streams),
+		newBrokerCmd(ctx, streams),
+		newProfileCmd(streams),
+		newThreadCmd(streams),
+		newTaskCmd(streams),
+		newPSCmd(streams),
+		newKillCmd(streams),
+		newCleanCmd(streams),
 		newTestCmd(ctx, streams),
 		newDoctorCmd(streams),
 		newHandleClaudeHookCmd(ctx, streams),

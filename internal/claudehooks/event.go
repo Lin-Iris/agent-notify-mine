@@ -48,7 +48,7 @@ func (a Adapter) Parse(data []byte) (event.Event, error) {
 	case "PermissionRequest":
 		base.Status = event.StatusPermissionReq
 		base.Title = notify.FormatTitle("claude_code", "permission_required")
-		base.Body = fmt.Sprintf("工具: %s\n操作需要您的授权许可", p.ToolName)
+		base.Body = permissionBody(p.ToolName, p.ToolInput)
 		return base, nil
 
 	case "Notification":
@@ -130,4 +130,43 @@ func extractErrorMessage(response map[string]any) string {
 		}
 	}
 	return "操作失败"
+}
+
+func permissionBody(tool string, input map[string]any) string {
+	if tool == "" {
+		tool = "未知工具"
+	}
+	return fmt.Sprintf("工具: %s\n授权内容:\n%s", tool, summarizeToolInput(input))
+}
+
+func summarizeToolInput(input map[string]any) string {
+	if len(input) == 0 {
+		return "未提供工具参数"
+	}
+	for _, key := range []string{"command", "cmd", "description", "query", "pattern", "path", "file_path", "url", "prompt"} {
+		value, ok := input[key]
+		if !ok {
+			continue
+		}
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text != "" {
+			return truncateSummary(text, 1200)
+		}
+	}
+	raw, err := json.MarshalIndent(input, "", "  ")
+	if err != nil {
+		return "无法解析工具参数"
+	}
+	return truncateSummary(string(raw), 1200)
+}
+
+func truncateSummary(text string, limit int) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "未提供工具参数"
+	}
+	if len(text) <= limit {
+		return text
+	}
+	return text[:limit-20] + "\n...(已截断)"
 }

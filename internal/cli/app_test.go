@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/hellolib/agent-notify/internal/config"
+	"github.com/hellolib/agent-notify/internal/feishucli"
 )
 
 type fakePrompter struct {
@@ -168,6 +169,7 @@ func TestRunVersionFlag(t *testing.T) {
 
 func TestRunInitWritesConfig(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("HOME", dir)
 	configPath := filepath.Join(dir, "config.yaml")
 	settingsPath := filepath.Join(dir, "settings.json")
 	calledPrepare := false
@@ -183,7 +185,7 @@ func TestRunInitWritesConfig(t *testing.T) {
 
 	// TDD: Single-select for agent, multi-select channels (default all), multi-select events (default all)
 	useFakePrompter(t, &fakePrompter{
-		selects: []string{"claude"}, // 1. Select agent (single select)
+		selects: []string{"claude", "notification"}, // 1. Select agent (single select)
 		multi: [][]string{
 			{"feishu", "system"}, // 2. Select channels (default all)
 			{"permission_required", "input_required", "run_completed", "run_failed"}, // 3. Select events (default all 4 for Claude)
@@ -223,6 +225,94 @@ func TestRunInitWritesConfig(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Notify.ClaudeCode.Events, expectedEvents) {
 		t.Fatalf("ClaudeCode system events = %#v, want %#v", got.Notify.ClaudeCode.Events, expectedEvents)
+	}
+}
+
+func TestRunInitRemoteFeishuConversationSavesProfile(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	restore := resetProfileFeishuEnsureReadyForTest(func(ctx context.Context) (feishucli.Config, error) {
+		return feishucli.Config{
+			AppID:      "scan_app",
+			AppSecret:  "scan_secret",
+			UserOpenID: "ou_owner",
+			UserName:   "Victoria",
+		}, nil
+	})
+	defer restore()
+
+	useFakePrompter(t, &fakePrompter{
+		selects: []string{"claude", "remote_feishu"},
+		confirm: []bool{false},
+	})
+
+	var stdout bytes.Buffer
+	err := Run(
+		context.Background(),
+		[]string{"init", "--config", configPath},
+		strings.NewReader(""),
+		&stdout,
+		&bytes.Buffer{},
+	)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if strings.Contains(stdout.String(), "scan_secret") {
+		t.Fatalf("stdout leaked app secret: %q", stdout.String())
+	}
+
+	got, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	profile := got.Profiles["claude-main"]
+	if profile.Agent != "claude" || !profile.Enabled {
+		t.Fatalf("profile = %#v, want enabled claude profile", profile)
+	}
+	if profile.Feishu.AppID != "scan_app" || profile.Feishu.AppSecret != "scan_secret" || profile.Feishu.OwnerOpenID != "ou_owner" {
+		t.Fatalf("profile feishu = %#v, want scanned config", profile.Feishu)
+	}
+	if profile.Workspace != "" {
+		t.Fatalf("profile workspace = %q, want empty until user runs /cd", profile.Workspace)
+	}
+	if got.Broker.ActiveProfile != "claude-main" {
+		t.Fatalf("active profile = %q, want claude-main", got.Broker.ActiveProfile)
+	}
+}
+
+func TestRunInitRemoteFeishuConversationFallsBackToAppCreatorOpenID(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	restore := resetProfileFeishuEnsureReadyForTest(func(ctx context.Context) (feishucli.Config, error) {
+		return feishucli.Config{
+			AppID:     "scan_app",
+			AppSecret: "scan_secret",
+		}, nil
+	})
+	defer restore()
+	oldResolve := profileFeishuResolveOwnerOpenID
+	profileFeishuResolveOwnerOpenID = func(ctx context.Context, appID, appSecret string) (string, error) {
+		if appID != "scan_app" || appSecret != "scan_secret" {
+			t.Fatalf("resolver credentials = %q/%q, want scanned credentials", appID, appSecret)
+		}
+		return "ou_creator", nil
+	}
+	defer func() { profileFeishuResolveOwnerOpenID = oldResolve }()
+
+	useFakePrompter(t, &fakePrompter{
+		selects: []string{"claude", "remote_feishu"},
+		confirm: []bool{false},
+	})
+
+	if err := Run(context.Background(), []string{"init", "--config", configPath}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	got, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.Profiles["claude-main"].Feishu.OwnerOpenID != "ou_creator" {
+		t.Fatalf("owner open id = %q, want ou_creator", got.Profiles["claude-main"].Feishu.OwnerOpenID)
 	}
 }
 
@@ -310,11 +400,12 @@ func TestRunDoctorDetectsCodexHookConfig(t *testing.T) {
 
 func TestRunInitCanDisableSystemNotification(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("HOME", dir)
 	configPath := filepath.Join(dir, "config.yaml")
 	settingsPath := filepath.Join(dir, "settings.json")
 
 	useFakePrompter(t, &fakePrompter{
-		selects: []string{"claude"}, // 1. Select agent (single select)
+		selects: []string{"claude", "notification"}, // 1. Select agent (single select)
 		multi: [][]string{
 			{"feishu"}, // 2. Select channels (only feishu, no system)
 			{"permission_required", "input_required"}, // 3. Select events (only 2 of 4)
@@ -348,12 +439,13 @@ func TestRunInitCanDisableSystemNotification(t *testing.T) {
 
 func TestRunInitPartialEventsSelection(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("HOME", dir)
 	configPath := filepath.Join(dir, "config.yaml")
 	settingsPath := filepath.Join(dir, "settings.json")
 
 	// 只选择 2 个事件（permission_required 和 run_completed）
 	useFakePrompter(t, &fakePrompter{
-		selects: []string{"claude"},
+		selects: []string{"claude", "notification"},
 		multi: [][]string{
 			{"feishu", "system"},
 			{"permission_required", "run_completed"}, // 只选 2 个事件
@@ -397,7 +489,7 @@ func TestRunInitInstallsCodexHookConfig(t *testing.T) {
 
 	// Codex init: agent → channels → events (只有 2 个事件可选)
 	useFakePrompter(t, &fakePrompter{
-		selects: []string{"codex"},
+		selects: []string{"codex", "notification"},
 		multi: [][]string{
 			{"feishu", "system"},
 			{"permission_required", "run_completed"},
@@ -455,7 +547,7 @@ func TestRunInitCodexDoesNotOverwriteClaudeCodeConfig(t *testing.T) {
 
 	// First, initialize Claude Code with specific config
 	useFakePrompter(t, &fakePrompter{
-		selects: []string{"claude"},
+		selects: []string{"claude", "notification"},
 		multi: [][]string{
 			{"system"},                               // Only system, no feishu
 			{"permission_required", "run_completed"}, // Only 2 events
@@ -484,7 +576,7 @@ func TestRunInitCodexDoesNotOverwriteClaudeCodeConfig(t *testing.T) {
 
 	// Now initialize Codex with different config
 	useFakePrompter(t, &fakePrompter{
-		selects: []string{"codex"},
+		selects: []string{"codex", "notification"},
 		multi: [][]string{
 			{"feishu"}, // Only feishu, no system
 			{"permission_required", "run_completed"},
@@ -536,7 +628,7 @@ func TestRunInitEditSameAgentConfig(t *testing.T) {
 
 	// First, initialize Claude Code with both channels and all events
 	useFakePrompter(t, &fakePrompter{
-		selects: []string{"claude"},
+		selects: []string{"claude", "notification"},
 		multi: [][]string{
 			{"feishu", "system"}, // Both channels
 			{"permission_required", "input_required", "run_completed", "run_failed"}, // All events
@@ -565,7 +657,7 @@ func TestRunInitEditSameAgentConfig(t *testing.T) {
 
 	// Now re-configure: disable system, select fewer events
 	useFakePrompter(t, &fakePrompter{
-		selects: []string{"claude"},
+		selects: []string{"claude", "notification"},
 		multi: [][]string{
 			{"feishu"},                               // Only feishu (deselect system)
 			{"permission_required", "run_completed"}, // Only 2 events (deselect others)
@@ -613,7 +705,7 @@ func TestRunInitClaudeCodeDoesNotOverwriteCodexConfig(t *testing.T) {
 
 	// First, initialize Codex with specific config
 	useFakePrompter(t, &fakePrompter{
-		selects: []string{"codex"},
+		selects: []string{"codex", "notification"},
 		multi: [][]string{
 			{"system"}, // Only system, no feishu
 			{"permission_required", "run_completed"},
@@ -639,7 +731,7 @@ func TestRunInitClaudeCodeDoesNotOverwriteCodexConfig(t *testing.T) {
 
 	// Now initialize Claude Code with different config
 	useFakePrompter(t, &fakePrompter{
-		selects: []string{"claude"},
+		selects: []string{"claude", "notification"},
 		multi: [][]string{
 			{"feishu", "system"},
 			{"input_required", "run_failed"},

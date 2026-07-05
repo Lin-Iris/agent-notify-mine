@@ -19,7 +19,7 @@ func TestService_CodexBarkChannel(t *testing.T) {
 	)
 	wantURL := "https://api.day.app/testkey/replace-me"
 	prompter := &mockPrompter{
-		selectResult: "codex",
+		selectResults: []string{"codex", setupModeNotify},
 		multiResults: [][]string{
 			{"bark"},
 			{"run_completed"},
@@ -58,7 +58,7 @@ func TestService_DisablesExistingBarkWhenDeselected(t *testing.T) {
 		WithConfigLoader(loader),
 	)
 	prompter := &mockPrompter{
-		selectResult: "claude",
+		selectResults: []string{"claude", setupModeNotify},
 		multiResults: [][]string{
 			{"system"},
 			{"permission_required"},

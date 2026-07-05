@@ -25,6 +25,8 @@ const (
 	channelServerChan = "serverchan"
 	channelPushPlus   = "pushplus"
 	channelWxPusher   = "wxpusher"
+	setupModeNotify   = "notification"
+	setupModeRemote   = "remote_feishu"
 	installScopeUsr   = "user"
 	installScopePrj   = "project"
 )
@@ -157,6 +159,20 @@ func promptChannelSelection(prompter Prompter, channels config.ChannelsConfig) (
 	return channelSelectionFromChoices(choices), nil
 }
 
+func promptSetupMode(prompter Prompter, agent string) (string, error) {
+	if !supportsRemoteFeishuConversation(agent) {
+		return setupModeNotify, nil
+	}
+	return prompter.Select("选择配置类型", []PromptOption{
+		{Label: "消息通知", Value: setupModeNotify},
+		{Label: "远程飞书对话", Value: setupModeRemote},
+	}, setupModeNotify)
+}
+
+func supportsRemoteFeishuConversation(agent string) bool {
+	return agent == agentClaude || agent == agentCodex
+}
+
 func currentChannelValues(channels config.ChannelsConfig) []string {
 	values := make([]string, 0, len(channelOptions))
 	if channels.System.Enabled {
@@ -262,6 +278,76 @@ func (s *Service) configureAgent(req configureAgentRequest) (configuredAgent, er
 		return s.configureHermes(req)
 	default:
 		return configuredAgent{}, fmt.Errorf("unsupported agent: %s", req.agent)
+	}
+}
+
+func (s *Service) configureRemoteFeishuConversation(ctx context.Context, prompter Prompter, output OutputWriter, cfg config.Config, path, agent string) (*SetupResult, error) {
+	profileName, err := remoteProfileForAgent(agent)
+	if err != nil {
+		return nil, err
+	}
+	output.Writef("为这个 Agent 配置远程飞书对话\n")
+	feishuCfg, err := s.prepareFeishuConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if feishuCfg.AppID == "" || feishuCfg.AppSecret == "" || feishuCfg.UserOpenID == "" {
+		return nil, errors.New("飞书扫码绑定没有返回完整配置")
+	}
+
+	next := cfg
+	if next.Profiles == nil {
+		next.Profiles = config.ProfilesConfig{}
+	}
+	profile := next.Profiles[profileName]
+	profile.Agent = agent
+	profile.Enabled = true
+	if profile.PermissionMode == "" {
+		profile.PermissionMode = "workspace-write"
+	}
+	if profile.Workspaces == nil {
+		profile.Workspaces = map[string]string{}
+	}
+	profile.Feishu = config.ProfileFeishuConfig{
+		AppID:       feishuCfg.AppID,
+		AppSecret:   feishuCfg.AppSecret,
+		OwnerOpenID: feishuCfg.UserOpenID,
+		ChatID:      profile.Feishu.ChatID,
+	}
+	next.Profiles[profileName] = profile
+	next.Broker.ActiveProfile = profileName
+	if err := s.saveConfig(path, next); err != nil {
+		return nil, err
+	}
+
+	output.Writef("已为这个 Agent 配置远程飞书对话: %s\n", agentName(agent))
+	output.Writef("配置文件: %s\n", path)
+	if profile.Workspace == "" {
+		output.Writef("当前项目未设置。启动后请在这个 Agent 的飞书对话里发送 `/cd /具体/项目/目录` 后再发任务。\n")
+	}
+	startNow, err := prompter.Confirm("是否现在启动远程对话服务？", true)
+	if err != nil {
+		return nil, err
+	}
+	if startNow {
+		if err := s.startBroker(ctx, next, path, profileName); err != nil {
+			return nil, err
+		}
+		output.Writef("远程对话服务已启动\n")
+	} else {
+		output.Writef("稍后可从菜单或 broker start 启动远程对话服务\n")
+	}
+	return &SetupResult{Agent: agent, ConfigPath: path, SettingsPath: profileName}, nil
+}
+
+func remoteProfileForAgent(agent string) (string, error) {
+	switch agent {
+	case agentClaude:
+		return "claude-main", nil
+	case agentCodex:
+		return "codex-main", nil
+	default:
+		return "", fmt.Errorf("unsupported remote Feishu conversation agent: %s", agent)
 	}
 }
 

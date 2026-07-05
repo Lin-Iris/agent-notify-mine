@@ -23,9 +23,23 @@ type PromptOption struct {
 	Value string
 }
 
+// FeishuConfig is the Feishu app/user config returned by QR setup.
+type FeishuConfig struct {
+	AppID      string
+	AppSecret  string
+	UserOpenID string
+	UserName   string
+}
+
 // FeishuPreparer prepares the Feishu CLI for use.
 type FeishuPreparer interface {
 	EnsureReady(ctx context.Context) error
+	Prepare(ctx context.Context) (FeishuConfig, error)
+}
+
+// BrokerStarter starts the remote conversation broker for a profile.
+type BrokerStarter interface {
+	Start(ctx context.Context, cfg config.Config, configPath, profile string) error
 }
 
 // OutputWriter handles output messages.
@@ -41,6 +55,7 @@ type Service struct {
 	cursorIntegration    agentintegrations.Integration
 	hermesIntegration    agentintegrations.Integration
 	feishuPreparer       FeishuPreparer
+	brokerStarter        BrokerStarter
 	configLoader         ConfigLoader
 }
 
@@ -108,6 +123,11 @@ func WithFeishuPreparer(p FeishuPreparer) Option {
 	return func(s *Service) { s.feishuPreparer = p }
 }
 
+// WithBrokerStarter sets the remote conversation broker starter.
+func WithBrokerStarter(b BrokerStarter) Option {
+	return func(s *Service) { s.brokerStarter = b }
+}
+
 // WithConfigLoader sets the config loader.
 func WithConfigLoader(l ConfigLoader) Option {
 	return func(s *Service) { s.configLoader = l }
@@ -165,6 +185,14 @@ func (s *Service) Run(ctx context.Context, prompter Prompter, output OutputWrite
 	selectedAgent, err := s.selectAgent(prompter, cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	mode, err := promptSetupMode(prompter, selectedAgent)
+	if err != nil {
+		return nil, err
+	}
+	if mode == setupModeRemote {
+		return s.configureRemoteFeishuConversation(ctx, prompter, output, cfg, path, selectedAgent)
 	}
 
 	channels, err := promptChannelSelection(prompter, channelsForAgent(cfg, selectedAgent))
@@ -240,6 +268,20 @@ func (s *Service) prepareFeishu(ctx context.Context) error {
 		return s.feishuPreparer.EnsureReady(ctx)
 	}
 	return nil
+}
+
+func (s *Service) prepareFeishuConfig(ctx context.Context) (FeishuConfig, error) {
+	if s.feishuPreparer != nil {
+		return s.feishuPreparer.Prepare(ctx)
+	}
+	return FeishuConfig{}, nil
+}
+
+func (s *Service) startBroker(ctx context.Context, cfg config.Config, path, profile string) error {
+	if s.brokerStarter == nil {
+		return nil
+	}
+	return s.brokerStarter.Start(ctx, cfg, path, profile)
 }
 
 func dedupeStrings(items []string) []string {

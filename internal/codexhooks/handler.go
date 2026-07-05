@@ -12,7 +12,7 @@ import (
 
 var defaultAdapter = Adapter{}
 
-func Handle(ctx context.Context, cfg config.Config, statePath, logPath string, stdin io.Reader) error {
+func Handle(ctx context.Context, cfg config.Config, statePath, logPath string, stdin io.Reader, stdout io.Writer) error {
 	data, err := io.ReadAll(stdin)
 	if err != nil {
 		return state.AppendLog(logPath, fmt.Sprintf("read stdin error: %v", err))
@@ -21,6 +21,11 @@ func Handle(ctx context.Context, cfg config.Config, statePath, logPath string, s
 	evt, err := defaultAdapter.Parse(data)
 	if err != nil {
 		return state.AppendLog(logPath, fmt.Sprintf("skip event: %v", err))
+	}
+
+	handled, err := agenthooks.MaybeHandleApproval(ctx, cfg, statePath, logPath, evt, stdout)
+	if handled {
+		return err
 	}
 
 	return agenthooks.DispatchEvent(ctx, cfg, statePath, logPath, evt)

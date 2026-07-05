@@ -30,7 +30,7 @@ func newHandleCodexHookCmd(ctx context.Context, streams Streams) *cobra.Command 
 			if err != nil {
 				return err
 			}
-			return codexhooks.Handle(ctx, cfg, statePath, logPath, streams.Stdin)
+			return codexhooks.Handle(ctx, cfg, statePath, logPath, streams.Stdin, streams.Stdout)
 		},
 	}
 }

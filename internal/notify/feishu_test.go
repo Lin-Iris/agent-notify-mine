@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/hellolib/agent-notify/internal/config"
 )
 
 type stubFeishuConfigProvider struct {
@@ -19,12 +21,17 @@ func (p stubFeishuConfigProvider) Parse() (FeishuCLIConfig, error) {
 }
 
 type stubFeishuMessenger struct {
-	creatorAppID  string
-	creatorOpenID string
-	sentReceiveID string
-	sentCard      map[string]any
-	creatorErr    error
-	sendErr       error
+	creatorAppID      string
+	creatorOpenID     string
+	sentReceiveID     string
+	sentReceiveIDType string
+	messageID         string
+	updatedID         string
+	sentCard          map[string]any
+	updatedCard       map[string]any
+	creatorErr        error
+	sendErr           error
+	updateErr         error
 }
 
 func (m *stubFeishuMessenger) CreatorOpenID(ctx context.Context, appID string) (string, error) {
@@ -35,9 +42,22 @@ func (m *stubFeishuMessenger) CreatorOpenID(ctx context.Context, appID string) (
 	return m.creatorOpenID, nil
 }
 
-func (m *stubFeishuMessenger) SendCard(ctx context.Context, receiveOpenID string, card map[string]any) error {
-	m.sentReceiveID = receiveOpenID
+func (m *stubFeishuMessenger) SendCard(ctx context.Context, receiveIDType, receiveID string, card map[string]any) (string, error) {
+	m.sentReceiveIDType = receiveIDType
+	m.sentReceiveID = receiveID
 	m.sentCard = card
+	return m.messageID, m.sendErr
+}
+
+func (m *stubFeishuMessenger) UpdateCard(ctx context.Context, messageID string, card map[string]any) error {
+	m.updatedID = messageID
+	m.updatedCard = card
+	return m.updateErr
+}
+
+func (m *stubFeishuMessenger) SendText(ctx context.Context, receiveIDType, receiveID string, text string) error {
+	m.sentReceiveIDType = receiveIDType
+	m.sentReceiveID = receiveID
 	return m.sendErr
 }
 
@@ -97,6 +117,99 @@ func TestFeishuSenderSendReturnsConfigError(t *testing.T) {
 	}
 	if err.Error() != "missing config" {
 		t.Fatalf("Send() error = %v, want missing config", err)
+	}
+}
+
+func TestFeishuSenderSendRawCardReturnsMessageID(t *testing.T) {
+	provider := stubFeishuConfigProvider{cfg: FeishuCLIConfig{AppID: "app", AppSecret: "secret"}}
+	messenger := &stubFeishuMessenger{creatorOpenID: "ou_creator", messageID: "om_123"}
+	sender := NewFeishuSender(provider)
+	sender.newMessenger = func(appID, appSecret string) (feishuMessenger, error) {
+		return messenger, nil
+	}
+
+	got, err := sender.SendRawCard(context.Background(), map[string]any{"header": map[string]any{}})
+	if err != nil {
+		t.Fatalf("SendRawCard() error = %v", err)
+	}
+	if got != "om_123" {
+		t.Fatalf("SendRawCard() message id = %q, want om_123", got)
+	}
+}
+
+func TestFeishuSenderUpdateRawCardUsesMessageID(t *testing.T) {
+	provider := stubFeishuConfigProvider{cfg: FeishuCLIConfig{AppID: "app", AppSecret: "secret"}}
+	messenger := &stubFeishuMessenger{}
+	sender := NewFeishuSender(provider)
+	sender.newMessenger = func(appID, appSecret string) (feishuMessenger, error) {
+		return messenger, nil
+	}
+
+	card := map[string]any{"header": map[string]any{"title": "updated"}}
+	if err := sender.UpdateRawCard(context.Background(), "om_456", card); err != nil {
+		t.Fatalf("UpdateRawCard() error = %v", err)
+	}
+	if messenger.updatedID != "om_456" {
+		t.Fatalf("updated id = %q, want om_456", messenger.updatedID)
+	}
+	if messenger.updatedCard == nil {
+		t.Fatal("updated card should be set")
+	}
+}
+
+func TestProfileFeishuSenderUsesProfileBotAndChatID(t *testing.T) {
+	sender, err := NewProfileFeishuSender("codex-main", config.ProfileConfig{
+		Feishu: config.ProfileFeishuConfig{
+			AppID:       "profile_app",
+			AppSecret:   "profile_secret",
+			OwnerOpenID: "ou_owner",
+			ChatID:      "oc_chat",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewProfileFeishuSender() error = %v", err)
+	}
+	messenger := &stubFeishuMessenger{messageID: "om_profile"}
+	sender.newMessenger = func(appID, appSecret string) (feishuMessenger, error) {
+		if appID != "profile_app" || appSecret != "profile_secret" {
+			t.Fatalf("app credentials = %q/%q, want profile credentials", appID, appSecret)
+		}
+		return messenger, nil
+	}
+
+	got, err := sender.SendRawCard(context.Background(), map[string]any{"header": map[string]any{}})
+	if err != nil {
+		t.Fatalf("SendRawCard() error = %v", err)
+	}
+	if got != "om_profile" {
+		t.Fatalf("message id = %q, want om_profile", got)
+	}
+	if messenger.sentReceiveIDType != "chat_id" || messenger.sentReceiveID != "oc_chat" {
+		t.Fatalf("receiver = %s/%s, want chat_id/oc_chat", messenger.sentReceiveIDType, messenger.sentReceiveID)
+	}
+}
+
+func TestProfileFeishuSenderFallsBackToOwnerOpenID(t *testing.T) {
+	sender, err := NewProfileFeishuSender("claude-main", config.ProfileConfig{
+		Feishu: config.ProfileFeishuConfig{
+			AppID:       "profile_app",
+			AppSecret:   "profile_secret",
+			OwnerOpenID: "ou_owner",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewProfileFeishuSender() error = %v", err)
+	}
+	messenger := &stubFeishuMessenger{messageID: "om_profile"}
+	sender.newMessenger = func(appID, appSecret string) (feishuMessenger, error) {
+		return messenger, nil
+	}
+
+	if _, err := sender.SendRawCard(context.Background(), map[string]any{}); err != nil {
+		t.Fatalf("SendRawCard() error = %v", err)
+	}
+	if messenger.sentReceiveIDType != "open_id" || messenger.sentReceiveID != "ou_owner" {
+		t.Fatalf("receiver = %s/%s, want open_id/ou_owner", messenger.sentReceiveIDType, messenger.sentReceiveID)
 	}
 }
 
@@ -204,5 +317,48 @@ func TestBuildCardOmitsWorkspaceForCodexNotification(t *testing.T) {
 		if contains(content, "**工作目录**") {
 			t.Fatalf("card should omit workspace for Codex notification, got %q", content)
 		}
+	}
+}
+
+func TestBuildApprovalCardHidesApprovalIDText(t *testing.T) {
+	sender := &FeishuSender{}
+	card := sender.buildCard(Message{
+		Event:         "permission_required",
+		Title:         "Claude Code 等待授权",
+		Body:          "工具: Bash\n授权内容:\ngit status",
+		ApprovalID:    "ap_123",
+		ApprovalToken: "token",
+	})
+
+	allText := cardAllText(card)
+	if contains(allText, "审批 ID") || contains(allText, "文本备用") || contains(allText, "ap_123") {
+		t.Fatalf("approval card should hide approval id text, got %q", allText)
+	}
+	if !contains(allText, "git status") {
+		t.Fatalf("approval card should include authorization content, got %q", allText)
+	}
+}
+
+func cardAllText(value any) string {
+	switch v := value.(type) {
+	case map[string]any:
+		var out string
+		for key, item := range v {
+			if key == "value" {
+				continue
+			}
+			out += cardAllText(item)
+		}
+		return out
+	case []any:
+		var out string
+		for _, item := range v {
+			out += cardAllText(item)
+		}
+		return out
+	case string:
+		return v + "\n"
+	default:
+		return ""
 	}
 }

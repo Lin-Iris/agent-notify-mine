@@ -61,6 +61,61 @@ func (f *feishuPreparerAdapter) EnsureReady(ctx context.Context) error {
 	return prepareFeishuCLI(ctx)
 }
 
+func (f *feishuPreparerAdapter) Prepare(ctx context.Context) (setup.FeishuConfig, error) {
+	cfg, err := profileFeishuEnsureReady(ctx)
+	if err != nil {
+		return setup.FeishuConfig{}, err
+	}
+	if cfg.UserOpenID == "" && cfg.AppID != "" && cfg.AppSecret != "" {
+		ownerOpenID, err := profileFeishuResolveOwnerOpenID(ctx, cfg.AppID, cfg.AppSecret)
+		if err != nil {
+			return setup.FeishuConfig{}, fmt.Errorf("feishu QR setup missing owner open_id and fallback lookup failed: %w", err)
+		}
+		cfg.UserOpenID = ownerOpenID
+	}
+	return setup.FeishuConfig{
+		AppID:      cfg.AppID,
+		AppSecret:  cfg.AppSecret,
+		UserOpenID: cfg.UserOpenID,
+		UserName:   cfg.UserName,
+	}, nil
+}
+
+type brokerStarterAdapter struct {
+	streams Streams
+}
+
+func (b *brokerStarterAdapter) Start(ctx context.Context, cfg config.Config, configPath, profile string) error {
+	_ = ctx
+	cfg.Broker.Enabled = true
+	cfg.Broker.LongConnection = true
+	cfg.Approval.Enabled = true
+	cfg.Broker.ActiveProfile = profile
+	p := ensureProfile(&cfg, profile)
+	p.Enabled = true
+	cfg.Profiles[profile] = p
+	if err := config.Save(configPath, cfg); err != nil {
+		return err
+	}
+	pid, alreadyRunning, err := startBrokerDaemon()
+	if err != nil {
+		return err
+	}
+	if alreadyRunning {
+		fmt.Fprintf(b.streams.Stdout, "broker already running: pid=%d profile=%s approval_timeout=%ds\n", pid, profile, cfg.Approval.TimeoutSeconds)
+	} else {
+		fmt.Fprintf(b.streams.Stdout, "broker enabled and started: pid=%d profile=%s approval_timeout=%ds\n", pid, profile, cfg.Approval.TimeoutSeconds)
+	}
+	if err := sendBrokerControlCard(ctx, profile); err != nil {
+		fmt.Fprintf(b.streams.Stdout, "远程对话服务已启动，但控制台卡发送失败: %v\n", err)
+		fmt.Fprintf(b.streams.Stdout, "稍后可以手动运行: agent-notify broker card --profile %s\n", profile)
+	}
+	if p.Workspace == "" {
+		fmt.Fprintln(b.streams.Stdout, "当前项目未设置。请在飞书对话里发送 `/cd /具体/项目/目录` 后再发任务。")
+	}
+	return appendAudit("broker start profile=" + profile)
+}
+
 func runInitFlow(ctx context.Context, streams Streams, prompter Prompter, configPath, settingsPath, binaryPath string) error {
 	_ = settingsPath // kept for backward compatibility
 
@@ -71,6 +126,7 @@ func runInitFlow(ctx context.Context, streams Streams, prompter Prompter, config
 		setup.WithCursorIntegration(agentintegrations.NewCursorIntegration()),
 		setup.WithHermesIntegration(agentintegrations.NewHermesIntegration()),
 		setup.WithFeishuPreparer(&feishuPreparerAdapter{}),
+		setup.WithBrokerStarter(&brokerStarterAdapter{streams: streams}),
 	)
 
 	cliPrompter := &cliPrompter{p: prompter}

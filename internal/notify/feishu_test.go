@@ -339,6 +339,40 @@ func TestBuildApprovalCardHidesApprovalIDText(t *testing.T) {
 	}
 }
 
+func TestBuildPlainPermissionCardHasNoApprovalButtons(t *testing.T) {
+	sender := &FeishuSender{}
+	card := sender.buildCard(Message{
+		Event: "permission_required",
+		Title: "Codex 等待授权",
+		Body:  "工具: Bash\n授权内容:\ngit status",
+		Agent: "codex",
+	})
+
+	allText := cardAllText(card)
+	if contains(allText, "批准") || contains(allText, "拒绝") {
+		t.Fatalf("plain permission card should not show approval buttons, got %q", allText)
+	}
+	if !contains(allText, "请回电脑授权") {
+		t.Fatalf("plain permission card should explain local authorization, got %q", allText)
+	}
+}
+
+func TestBuildApprovalCardIncludesProfileInButtonValues(t *testing.T) {
+	sender := &FeishuSender{}
+	card := sender.buildCard(Message{
+		Event:         "permission_required",
+		Title:         "Codex 等待授权",
+		Body:          "工具: Bash",
+		Profile:       "codex-main",
+		ApprovalID:    "ap_123",
+		ApprovalToken: "token",
+	})
+
+	if !cardValueContains(card, "profile", "codex-main") {
+		t.Fatalf("approval card should include profile in button values: %#v", card)
+	}
+}
+
 func cardAllText(value any) string {
 	switch v := value.(type) {
 	case map[string]any:
@@ -361,4 +395,25 @@ func cardAllText(value any) string {
 	default:
 		return ""
 	}
+}
+
+func cardValueContains(value any, key string, want string) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		if got, ok := v[key].(string); ok && got == want {
+			return true
+		}
+		for _, item := range v {
+			if cardValueContains(item, key, want) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if cardValueContains(item, key, want) {
+				return true
+			}
+		}
+	}
+	return false
 }

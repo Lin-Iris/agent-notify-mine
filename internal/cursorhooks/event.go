@@ -15,11 +15,11 @@ type payload struct {
 	HookEventName  string   `json:"hook_event_name"`
 	ConversationID string   `json:"conversation_id"`
 	WorkspaceRoots []string `json:"workspace_roots"`
-	Status         string   `json:"status"`         // stop 事件: "completed" | "error" | "aborted"
-	ErrorMessage   string   `json:"error_message"`  // postToolUseFailure 事件
+	Status         string   `json:"status"`        // stop 事件: "completed" | "error" | "aborted"
+	ErrorMessage   string   `json:"error_message"` // postToolUseFailure 事件
 	ToolName       string   `json:"tool_name"`
-	Command        string   `json:"command"`        // beforeShellExecution 事件
-	CWD            string   `json:"cwd"`            // beforeShellExecution 事件
+	Command        string   `json:"command"` // beforeShellExecution 事件
+	CWD            string   `json:"cwd"`     // beforeShellExecution 事件
 }
 
 // ── Adapter ────────────────────────────────────────────────
@@ -54,7 +54,7 @@ func (a Adapter) Parse(data []byte) (event.Event, error) {
 	case "stop":
 		switch p.Status {
 		case "completed":
-			base.Status = event.StatusPending
+			base.Status = event.StatusCompleted
 			base.Title = notify.FormatTitle("cursor", "run_completed")
 			base.Body = notify.DefaultBody("run_completed")
 		case "error", "aborted":
@@ -62,7 +62,7 @@ func (a Adapter) Parse(data []byte) (event.Event, error) {
 			base.Title = notify.FormatTitle("cursor", "run_failed")
 			base.Body = fmt.Sprintf("任务状态: %s", p.Status)
 		default:
-			base.Status = event.StatusPending
+			base.Status = event.StatusCompleted
 			base.Title = notify.FormatTitle("cursor", "run_completed")
 			base.Body = notify.DefaultBody("run_completed")
 		}
@@ -122,7 +122,7 @@ func isSafeCommand(rawCmd string) bool {
 		"date": true, "uptime": true, "whoami": true, "id": true, "uname": true, "hostname": true,
 		"man": true, "whatis": true, "apropos": true, "info": true,
 		"clear": true, "reset": true, "true": true, "false": true, "sleep": true,
-		"git": true, // 大部分 git 子命令是安全的，下面有危险子命令过滤
+		"git":  true, // 大部分 git 子命令是安全的，下面有危险子命令过滤
 		"node": true, "python": true, "python3": true, "ruby": true, "go": true, "rustc": true,
 		"npm": true, "yarn": true, "pnpm": true, "cargo": true, "pip": true, "pip3": true, "gem": true,
 		"npx": true, "make": true,

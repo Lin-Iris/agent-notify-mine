@@ -25,9 +25,8 @@ var managedHermesEvents = []struct {
 func BuildHookSettings(binaryPath string) []HermesHookEntry {
 	binaryPath = common.ResolveBinaryPath(binaryPath)
 	var entries []HermesHookEntry
-	for _, evt := range managedHermesEvents {
-		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
-		entries = append(entries, HermesHookEntry{Command: command, Timeout: 10})
+	for range managedHermesEvents {
+		entries = append(entries, HermesHookEntry{Command: hookCommand(binaryPath), Timeout: 10})
 	}
 	return entries
 }
@@ -46,17 +45,19 @@ func Install(path string, binaryPath string) error {
 	}
 
 	for _, evt := range managedHermesEvents {
-		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
+		command := hookCommand(binaryPath)
 		entry := HermesHookEntry{Command: command, Timeout: 10}
 
 		switch evt.EventKey {
 		case "post_llm_call":
 			if hasHermesManagedHook(cfg.Hooks.PostLLMCall) {
+				cfg.Hooks.PostLLMCall = normalizeHermesManagedHooks(cfg.Hooks.PostLLMCall, command)
 				continue
 			}
 			cfg.Hooks.PostLLMCall = append(cfg.Hooks.PostLLMCall, entry)
 		case "pre_approval_request":
 			if hasHermesManagedHook(cfg.Hooks.PreApprovalRequest) {
+				cfg.Hooks.PreApprovalRequest = normalizeHermesManagedHooks(cfg.Hooks.PreApprovalRequest, command)
 				continue
 			}
 			cfg.Hooks.PreApprovalRequest = append(cfg.Hooks.PreApprovalRequest, entry)
@@ -65,6 +66,10 @@ func Install(path string, binaryPath string) error {
 	cfg.HooksAutoAccept = true
 
 	return saveHermesConfig(path, cfg)
+}
+
+func hookCommand(binaryPath string) string {
+	return binaryPath + " " + hookCommandMarker
 }
 
 // IsInstalled 检查配置中是否已存在 agent-notify 的 hook。
@@ -122,6 +127,15 @@ func hasHermesManagedHook(entries []HermesHookEntry) bool {
 		}
 	}
 	return false
+}
+
+func normalizeHermesManagedHooks(entries []HermesHookEntry, command string) []HermesHookEntry {
+	for i := range entries {
+		if strings.Contains(entries[i].Command, hookCommandMarker) {
+			entries[i].Command = command
+		}
+	}
+	return entries
 }
 
 func filterHermesHooks(entries []HermesHookEntry) []HermesHookEntry {

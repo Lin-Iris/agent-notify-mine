@@ -25,16 +25,8 @@ func TestBuildHookSettings_RegistersTwoEvents(t *testing.T) {
 			t.Fatalf("%s entry type = %T, want map[string]any", evt.EventKey, items[0])
 		}
 
-		// 验证 matcher
-		if evt.HasMatcher {
-			matcher, has := entry["matcher"]
-			if !has || matcher != "" {
-				t.Fatalf("%s matcher = %v, want \"\"", evt.EventKey, matcher)
-			}
-		} else {
-			if _, has := entry["matcher"]; has {
-				t.Fatalf("%s should not have matcher", evt.EventKey)
-			}
+		if _, has := entry["matcher"]; has {
+			t.Fatalf("%s should not have matcher", evt.EventKey)
 		}
 
 		// 验证 hooks 数组
@@ -47,7 +39,7 @@ func TestBuildHookSettings_RegistersTwoEvents(t *testing.T) {
 			t.Fatalf("%s inner hook type = %T, want map[string]any", evt.EventKey, innerHooks[0])
 		}
 
-		wantCmd := "/tmp/agent-notify handle-codex-hook " + evt.SubCommand
+		wantCmd := "/tmp/agent-notify handle-codex-hook"
 		gotCmd := cmdHook["command"]
 		if gotCmd != wantCmd {
 			t.Fatalf("%s command = %v, want %s", evt.EventKey, gotCmd, wantCmd)
@@ -175,6 +167,68 @@ func TestInstall_Idempotent(t *testing.T) {
 		if marked != 1 {
 			t.Fatalf("%s has %d agent-notify hooks after re-install, want 1", event.EventKey, marked)
 		}
+	}
+}
+
+func TestInstall_NormalizesLegacyManagedHookCommand(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hooks.json")
+	existing := `{
+  "hooks": {
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "/old/bin/agent-notify handle-codex-hook run_completed"}]}
+    ]
+  }
+}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Install(path, "/tmp/agent-notify"); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	got := readSettingsForTest(t, path)
+	commands := collectCommandsForTest(got["hooks"].(map[string]any)["Stop"].([]any))
+	if !containsString(commands, "/tmp/agent-notify handle-codex-hook") {
+		t.Fatalf("managed hook command was not normalized: %v", commands)
+	}
+}
+
+func TestInstall_RemovesLegacyMatcherFromManagedCodexHook(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hooks.json")
+	existing := `{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [{"type": "command", "command": "/old/bin/agent-notify handle-codex-hook"}]
+      }
+    ]
+  }
+}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Install(path, "/tmp/agent-notify"); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	got := readSettingsForTest(t, path)
+	hooks := got["hooks"].(map[string]any)
+	entries := hooks["PermissionRequest"].([]any)
+	if len(entries) != 1 {
+		t.Fatalf("PermissionRequest entry count = %d, want 1", len(entries))
+	}
+	entry := entries[0].(map[string]any)
+	if _, has := entry["matcher"]; has {
+		t.Fatalf("managed Codex PermissionRequest matcher should be removed, got %v", entry["matcher"])
+	}
+	commands := collectCommandsForTest(entries)
+	if !containsString(commands, "/tmp/agent-notify handle-codex-hook") {
+		t.Fatalf("managed hook command was not normalized: %v", commands)
 	}
 }
 

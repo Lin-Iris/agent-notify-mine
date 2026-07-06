@@ -602,6 +602,7 @@ func (s *FeishuSender) buildCard(msg Message) map[string]any {
 							"action":      "approve",
 							"approval_id": msg.ApprovalID,
 							"token":       msg.ApprovalToken,
+							"profile":     msg.Profile,
 						},
 					},
 					map[string]any{
@@ -612,11 +613,22 @@ func (s *FeishuSender) buildCard(msg Message) map[string]any {
 							"action":      "deny",
 							"approval_id": msg.ApprovalID,
 							"token":       msg.ApprovalToken,
+							"profile":     msg.Profile,
 						},
 					},
 				},
 			},
 		)
+	} else if msg.Event == "permission_required" {
+		elements = append(elements, map[string]any{
+			"tag": "note",
+			"elements": []any{
+				map[string]any{
+					"tag":     "plain_text",
+					"content": "远程操作未开启或此请求不可远程审批，请回电脑授权。",
+				},
+			},
+		})
 	}
 	elements = append(elements,
 		map[string]any{

@@ -23,10 +23,16 @@ func Handle(ctx context.Context, cfg config.Config, statePath, logPath string, s
 		return state.AppendLog(logPath, fmt.Sprintf("skip event: %v", err))
 	}
 
+	// 1. Always send notification first — unaffected by approval toggle
+	if err := agenthooks.DispatchEvent(ctx, cfg, statePath, logPath, evt); err != nil {
+		_ = state.AppendLog(logPath, fmt.Sprintf("dispatch error: %v", err))
+	}
+
+	// 2. Handle remote approval if applicable
 	handled, err := agenthooks.MaybeHandleApproval(ctx, cfg, statePath, logPath, evt, stdout)
 	if handled {
 		return err
 	}
 
-	return agenthooks.DispatchEvent(ctx, cfg, statePath, logPath, evt)
+	return nil
 }

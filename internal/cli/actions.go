@@ -12,8 +12,13 @@ import (
 	"github.com/hellolib/agent-notify/internal/app/setup"
 	"github.com/hellolib/agent-notify/internal/app/tester"
 	"github.com/hellolib/agent-notify/internal/claudehooks"
+	"github.com/hellolib/agent-notify/internal/codebuddyhooks"
+	"github.com/hellolib/agent-notify/internal/codexhooks"
 	"github.com/hellolib/agent-notify/internal/common"
 	"github.com/hellolib/agent-notify/internal/config"
+	"github.com/hellolib/agent-notify/internal/cursorhooks"
+	"github.com/hellolib/agent-notify/internal/hermeshooks"
+	"gopkg.in/yaml.v3"
 )
 
 // cliPrompter adapts CLI Prompter to setup.Prompter
@@ -69,7 +74,11 @@ func (f *feishuPreparerAdapter) Prepare(ctx context.Context) (setup.FeishuConfig
 	if cfg.UserOpenID == "" && cfg.AppID != "" && cfg.AppSecret != "" {
 		ownerOpenID, err := profileFeishuResolveOwnerOpenID(ctx, cfg.AppID, cfg.AppSecret)
 		if err != nil {
-			return setup.FeishuConfig{}, fmt.Errorf("feishu QR setup missing owner open_id and fallback lookup failed: %w", err)
+			return setup.FeishuConfig{}, fmt.Errorf(
+				"飞书应用授权失败，无法获取用户身份。\n"+
+					"  可能原因：应用已被删除、未发布、或未被企业安装。\n"+
+					"  请访问 https://open.feishu.cn/app 检查应用状态后重新运行 agent-notify init。\n"+
+					"  原始错误: %w", err)
 		}
 		cfg.UserOpenID = ownerOpenID
 	}
@@ -152,6 +161,85 @@ func runInstallClaudeHooks(scope, binaryPath string) error {
 		return err
 	}
 	return claudehooks.Install(path, common.ResolveBinaryPath(binaryPath))
+}
+
+func runPrintCodexHooks(streams Streams, binaryPath string) error {
+	settings := codexhooks.BuildHookSettings(common.ResolveBinaryPath(binaryPath))
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(streams.Stdout, string(data))
+	return err
+}
+
+func runInstallCodexHooks(scope, binaryPath string) error {
+	path, err := settingsPathForAgent("codex", scope)
+	if err != nil {
+		return err
+	}
+	return codexhooks.Install(path, common.ResolveBinaryPath(binaryPath))
+}
+
+func runPrintCodeBuddyHooks(streams Streams, binaryPath string) error {
+	settings := codebuddyhooks.BuildHookSettings(common.ResolveBinaryPath(binaryPath))
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(streams.Stdout, string(data))
+	return err
+}
+
+func runInstallCodeBuddyHooks(scope, binaryPath string) error {
+	path, err := settingsPathForAgent("codebuddy", scope)
+	if err != nil {
+		return err
+	}
+	return codebuddyhooks.Install(path, common.ResolveBinaryPath(binaryPath))
+}
+
+func runPrintCursorHooks(streams Streams, binaryPath string) error {
+	settings := cursorhooks.BuildHookSettings(common.ResolveBinaryPath(binaryPath))
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(streams.Stdout, string(data))
+	return err
+}
+
+func runInstallCursorHooks(scope, binaryPath string) error {
+	path, err := settingsPathForAgent("cursor", scope)
+	if err != nil {
+		return err
+	}
+	return cursorhooks.Install(path, common.ResolveBinaryPath(binaryPath))
+}
+
+func runPrintHermesHooks(streams Streams, binaryPath string) error {
+	entries := hermeshooks.BuildHookSettings(common.ResolveBinaryPath(binaryPath))
+	settings := map[string]any{
+		"hooks": map[string]any{
+			"pre_approval_request": []hermeshooks.HermesHookEntry{entries[0]},
+			"post_llm_call":        []hermeshooks.HermesHookEntry{entries[1]},
+		},
+		"hooks_auto_accept": true,
+	}
+	data, err := yaml.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(streams.Stdout, string(data))
+	return err
+}
+
+func runInstallHermesHooks(scope, binaryPath string) error {
+	path, err := settingsPathForAgent("hermes", scope)
+	if err != nil {
+		return err
+	}
+	return hermeshooks.Install(path, common.ResolveBinaryPath(binaryPath))
 }
 
 func runTestFeishu(ctx context.Context, streams Streams) error {
@@ -298,8 +386,6 @@ func printCurrentNotifyConfig(streams Streams) error {
 }
 
 // settingsPathForAgent returns the settings path for the given agent and scope.
-// Currently only Claude has manual install-hooks subcommands; the Codex path is
-// handled exclusively through the init flow + CodexIntegration.
 func settingsPathForAgent(agent, scope string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -313,6 +399,42 @@ func settingsPathForAgent(agent, scope string) (string, error) {
 			return filepath.Join(home, ".claude", "settings.json"), nil
 		case "project":
 			return filepath.Join(".claude", "settings.json"), nil
+		default:
+			return "", fmt.Errorf("unsupported scope: %s", scope)
+		}
+	case "codex":
+		switch scope {
+		case "user":
+			return filepath.Join(home, ".codex", "hooks.json"), nil
+		case "project":
+			return filepath.Join(".codex", "hooks.json"), nil
+		default:
+			return "", fmt.Errorf("unsupported scope: %s", scope)
+		}
+	case "codebuddy":
+		switch scope {
+		case "user":
+			return filepath.Join(home, ".codebuddy", "settings.json"), nil
+		case "project":
+			return filepath.Join(".codebuddy", "settings.json"), nil
+		default:
+			return "", fmt.Errorf("unsupported scope: %s", scope)
+		}
+	case "cursor":
+		switch scope {
+		case "user":
+			return filepath.Join(home, ".cursor", "hooks.json"), nil
+		case "project":
+			return filepath.Join(".cursor", "hooks.json"), nil
+		default:
+			return "", fmt.Errorf("unsupported scope: %s", scope)
+		}
+	case "hermes":
+		switch scope {
+		case "user":
+			return filepath.Join(home, ".hermes", "config.yaml"), nil
+		case "project":
+			return "", fmt.Errorf("hermes does not support project-level hooks")
 		default:
 			return "", fmt.Errorf("unsupported scope: %s", scope)
 		}

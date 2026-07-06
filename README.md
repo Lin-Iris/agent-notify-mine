@@ -43,6 +43,8 @@
 - Codex 通过 `~/.codex/hooks.json` 订阅 `PermissionRequest` 与 `Stop`，分别映射到 `permission_required` 与 `run_completed`。`input_required` 与 `run_failed` Codex 目前没有对应 hook，因此暂不支持。
 - CodeBuddy 通过 `~/.codebuddy/settings.json` 的 hooks 订阅五个事件（`PermissionRequest`、`Notification`、`Stop`、`SessionEnd`、`PostToolUseFailure`），全部映射到通知事件。
 
+普通消息通知只负责提醒：`PermissionRequest` 会被转成 `permission_required` 通知，不接管 Codex 桌面 App 或 Claude/Codex 自身的授权弹窗。只有开启飞书远程对话后，由 broker 启动的受控 Agent 子进程才支持手机审批。
+
 ### 支持的平台
 
 | 平台 | 架构 | 状态 |
@@ -234,7 +236,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-claude-hook permission_required"
+            "command": "/usr/local/bin/agent-notify handle-claude-hook"
           }
         ]
       }
@@ -245,7 +247,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-claude-hook input_required"
+            "command": "/usr/local/bin/agent-notify handle-claude-hook"
           }
         ]
       }
@@ -255,7 +257,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-claude-hook run_completed"
+            "command": "/usr/local/bin/agent-notify handle-claude-hook"
           }
         ]
       }
@@ -266,7 +268,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-claude-hook run_failed"
+            "command": "/usr/local/bin/agent-notify handle-claude-hook"
           }
         ]
       }
@@ -288,7 +290,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-codex-hook permission_required"
+            "command": "/usr/local/bin/agent-notify handle-codex-hook"
           }
         ]
       }
@@ -298,7 +300,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-codex-hook run_completed"
+            "command": "/usr/local/bin/agent-notify handle-codex-hook"
           }
         ]
       }
@@ -323,7 +325,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook permission_required"
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook"
           }
         ]
       }
@@ -333,7 +335,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook input_required"
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook"
           }
         ]
       }
@@ -343,7 +345,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook run_completed"
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook"
           }
         ]
       }
@@ -353,7 +355,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook run_completed"
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook"
           }
         ]
       }
@@ -363,7 +365,7 @@ Hermes 推荐事件:
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook run_failed"
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-hook"
           }
         ]
       }
@@ -380,17 +382,17 @@ Hermes 推荐事件:
   "hooks": {
     "beforeShellExecution": [
       {
-        "command": "/usr/local/bin/agent-notify handle-cursor-hook permission_required"
+        "command": "/usr/local/bin/agent-notify handle-cursor-hook"
       }
     ],
     "stop": [
       {
-        "command": "/usr/local/bin/agent-notify handle-cursor-hook run_completed"
+        "command": "/usr/local/bin/agent-notify handle-cursor-hook"
       }
     ],
     "postToolUseFailure": [
       {
-        "command": "/usr/local/bin/agent-notify handle-cursor-hook run_failed"
+        "command": "/usr/local/bin/agent-notify handle-cursor-hook"
       }
     ]
   }
@@ -404,10 +406,10 @@ Hermes 推荐事件:
 ```yaml
 hooks:
   pre_approval_request:
-    - command: "/usr/local/bin/agent-notify handle-hermes-hook permission_required"
+    - command: "/usr/local/bin/agent-notify handle-hermes-hook"
       timeout: 10
   post_llm_call:
-    - command: "/usr/local/bin/agent-notify handle-hermes-hook run_completed"
+    - command: "/usr/local/bin/agent-notify handle-hermes-hook"
       timeout: 10
 hooks_auto_accept: true
 ```
@@ -893,6 +895,8 @@ event.Event                     notify.Message             SessionRecord
 ## 飞书远程对话 / 审批 Broker
 
 > Broker 控制的是本机 `codex` / `claude` CLI 子进程，不接管当前 Codex 桌面 App 聊天窗口。手机和电脑不需要在同一网络；电脑端 broker 主动连飞书云端，手机通过飞书下发任务。
+>
+> 飞书远程审批只对 broker 启动的受控任务生效。未开启远程对话时，同一个飞书机器人仍可收到普通通知，但授权类通知只会提示你回电脑处理，不会显示可点击审批按钮。
 
 推荐入口仍然是：
 

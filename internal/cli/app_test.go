@@ -81,7 +81,7 @@ func TestRunRootHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	for _, want := range []string{"init", "claude", "test", "doctor"} {
+	for _, want := range []string{"init", "claude", "codex", "codebuddy", "cursor", "hermes", "test", "doctor"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
@@ -140,6 +140,30 @@ func TestRunClaudeHelp(t *testing.T) {
 func TestRunClaudePrintHooksHelp(t *testing.T) {
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{"claude", "print-hooks", "--help"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "--binary") {
+		t.Fatalf("stdout = %q, want --binary flag", stdout.String())
+	}
+}
+
+func TestRunCodexHelp(t *testing.T) {
+	var stdout bytes.Buffer
+	err := Run(context.Background(), []string{"codex", "--help"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	for _, want := range []string{"print-hooks", "install-hooks"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestRunCodexPrintHooksHelp(t *testing.T) {
+	var stdout bytes.Buffer
+	err := Run(context.Background(), []string{"codex", "print-hooks", "--help"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}

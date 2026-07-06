@@ -7,6 +7,7 @@ type Message struct {
 	Event         string
 	SessionID     string
 	Workspace     string
+	Profile       string
 	Title         string
 	Body          string
 	RawPayload    string // 原始 hook JSON，用于调试和回放

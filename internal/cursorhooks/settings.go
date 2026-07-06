@@ -28,9 +28,8 @@ func BuildHookSettings(binaryPath string) map[string]any {
 	hooks := map[string]any{}
 
 	for _, evt := range managedEvents {
-		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
 		entry := map[string]any{
-			"command": command,
+			"command": hookCommand(binaryPath),
 		}
 		hooks[evt.EventKey] = []any{entry}
 	}
@@ -55,11 +54,11 @@ func Install(path string, binaryPath string) error {
 
 	for _, evt := range managedEvents {
 		if eventHasManagedHook(hooks, evt.EventKey) {
+			normalizeManagedHookCommands(hooks, evt.EventKey, hookCommand(binaryPath))
 			continue
 		}
-		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
 		entry := map[string]any{
-			"command": command,
+			"command": hookCommand(binaryPath),
 		}
 		entries := toAnySlice(hooks[evt.EventKey])
 		entries = append(entries, entry)
@@ -71,6 +70,10 @@ func Install(path string, binaryPath string) error {
 	}
 
 	return writeSettings(path, settings)
+}
+
+func hookCommand(binaryPath string) string {
+	return binaryPath + " " + hookCommandMarker
 }
 
 func IsInstalled(path string) (bool, error) {
@@ -183,6 +186,19 @@ func eventHasManagedHook(hooks map[string]any, event string) bool {
 		}
 	}
 	return false
+}
+
+func normalizeManagedHookCommands(hooks map[string]any, event, command string) {
+	for _, entry := range toAnySlice(hooks[event]) {
+		hookMap, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		cmd, _ := hookMap["command"].(string)
+		if strings.Contains(cmd, hookCommandMarker) {
+			hookMap["command"] = command
+		}
+	}
 }
 
 func isManagedHook(hook any) bool {

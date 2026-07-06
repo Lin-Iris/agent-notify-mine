@@ -62,10 +62,8 @@ func (a Adapter) Parse(data []byte) (event.Event, error) {
 		return event.Event{}, fmt.Errorf("unsupported notification message: %s", p.Message)
 
 	case "Stop":
-		// Stop 是生命周期信号，不是成功完成。
-		// 状态机根据会话上下文推断最终状态。
-		base.Status = event.StatusPending
-		base.Title = notify.FormatTitle("claude_code", "running")
+		base.Status = event.StatusCompleted
+		base.Title = notify.FormatTitle("claude_code", "run_completed")
 		base.Body = notify.DefaultBody("run_completed")
 		return base, nil
 

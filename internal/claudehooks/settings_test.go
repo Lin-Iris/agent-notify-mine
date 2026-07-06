@@ -48,7 +48,7 @@ func TestBuildHookSettings(t *testing.T) {
 			t.Fatalf("%s inner hook type = %T, want map[string]any", evt.EventKey, innerHooks[0])
 		}
 
-		wantCmd := "/tmp/agent-notify handle-claude-hook " + evt.SubCommand
+		wantCmd := "/tmp/agent-notify handle-claude-hook"
 		gotCmd, has := cmdHook["command"]
 		if !has || gotCmd != wantCmd {
 			t.Fatalf("%s command = %v, want %s", evt.EventKey, gotCmd, wantCmd)
@@ -152,6 +152,31 @@ func TestInstallIdempotent(t *testing.T) {
 		if marked != 1 {
 			t.Fatalf("%s has %d agent-notify hooks after re-install, want 1", event.EventKey, marked)
 		}
+	}
+}
+
+func TestInstallNormalizesLegacyManagedHookCommand(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	existing := `{
+  "hooks": {
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "/old/bin/agent-notify handle-claude-hook run_completed"}]}
+    ]
+  }
+}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Install(path, "/tmp/agent-notify"); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	got := readSettingsForTest(t, path)
+	commands := collectCommandsForTest(got["hooks"].(map[string]any)["Stop"].([]any))
+	if !containsString(commands, "/tmp/agent-notify handle-claude-hook") {
+		t.Fatalf("managed hook command was not normalized: %v", commands)
 	}
 }
 

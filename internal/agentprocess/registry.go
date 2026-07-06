@@ -112,6 +112,7 @@ func (r *Registry) StartWithOptions(ctx context.Context, opts StartOptions) (Rec
 	}
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = workspace
+	cmd.Env = append(os.Environ(), remoteEnvEntries(profile, id)...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = logFile.Close()
@@ -196,6 +197,13 @@ func (r *Registry) StartWithOptions(ctx context.Context, opts StartOptions) (Rec
 	}()
 
 	return rec, nil
+}
+
+func remoteEnvEntries(profile, taskID string) []string {
+	return []string{
+		"AGENT_NOTIFY_REMOTE_PROFILE=" + profile,
+		"AGENT_NOTIFY_REMOTE_TASK_ID=" + taskID,
+	}
 }
 
 func (r *Registry) Save(rec Record) error {

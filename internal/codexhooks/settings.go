@@ -20,12 +20,11 @@ const hookCommandMarker = "handle-codex-hook"
 type eventMeta struct {
 	EventKey   string
 	SubCommand string
-	HasMatcher bool
 }
 
 var managedEvents = []eventMeta{
-	{EventKey: "PermissionRequest", SubCommand: "permission_required", HasMatcher: true},
-	{EventKey: "Stop",              SubCommand: "run_completed",      HasMatcher: false},
+	{EventKey: "PermissionRequest", SubCommand: "permission_required"},
+	{EventKey: "Stop", SubCommand: "run_completed"},
 }
 
 // BuildHookSettings 生成 Codex hooks.json 所需的 settings 结构。
@@ -34,7 +33,7 @@ func BuildHookSettings(binaryPath string) map[string]any {
 	hooks := map[string]any{}
 
 	for _, evt := range managedEvents {
-		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
+		command := hookCommand(binaryPath)
 
 		entry := map[string]any{
 			"hooks": []any{
@@ -43,9 +42,6 @@ func BuildHookSettings(binaryPath string) map[string]any {
 					"command": command,
 				},
 			},
-		}
-		if evt.HasMatcher {
-			entry["matcher"] = ""
 		}
 
 		hooks[evt.EventKey] = []any{entry}
@@ -71,10 +67,11 @@ func Install(path string, binaryPath string) error {
 
 	for _, evt := range managedEvents {
 		if eventHasManagedHook(hooks, evt.EventKey) {
+			normalizeManagedHookEntries(hooks, evt.EventKey, hookCommand(binaryPath))
 			continue
 		}
 
-		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
+		command := hookCommand(binaryPath)
 		entry := map[string]any{
 			"hooks": []any{
 				map[string]any{
@@ -82,9 +79,6 @@ func Install(path string, binaryPath string) error {
 					"command": command,
 				},
 			},
-		}
-		if evt.HasMatcher {
-			entry["matcher"] = ""
 		}
 
 		entries := toAnySlice(hooks[evt.EventKey])
@@ -104,6 +98,10 @@ func Install(path string, binaryPath string) error {
 	}
 
 	return nil
+}
+
+func hookCommand(binaryPath string) string {
+	return binaryPath + " " + hookCommandMarker
 }
 
 // IsInstalled 检查 hooks.json 中是否已挂载 agent-notify 的 hook。
@@ -237,6 +235,34 @@ func eventHasManagedHook(hooks map[string]any, event string) bool {
 			if isManagedHook(h) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func normalizeManagedHookEntries(hooks map[string]any, event string, command string) {
+	for _, entry := range toAnySlice(hooks[event]) {
+		entryMap, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if entryHasManagedHook(entryMap) {
+			delete(entryMap, "matcher")
+		}
+		for _, h := range toAnySlice(entryMap["hooks"]) {
+			hookMap, ok := h.(map[string]any)
+			if !ok || !isManagedHook(hookMap) {
+				continue
+			}
+			hookMap["command"] = command
+		}
+	}
+}
+
+func entryHasManagedHook(entry map[string]any) bool {
+	for _, h := range toAnySlice(entry["hooks"]) {
+		if isManagedHook(h) {
+			return true
 		}
 	}
 	return false

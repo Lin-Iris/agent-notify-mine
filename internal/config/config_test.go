@@ -150,6 +150,49 @@ behavior:
 	}
 }
 
+func TestLoadAddsSystemFallbackForAgentsMissingChannelConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	configYAML := []byte(`version: 1
+agent:
+  cursor:
+    enabled: true
+    install_scope: user
+  hermes:
+    enabled: true
+    install_scope: user
+notify:
+  cursor: {}
+  hermes: {}
+behavior:
+  dedupe_seconds: 60
+  send_timeout_seconds: 5
+  locale: zh-CN
+`)
+	if err := os.WriteFile(path, configYAML, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !got.Notify.Cursor.Channels.System.Enabled {
+		t.Fatal("Cursor system channel should be enabled when no channels are configured")
+	}
+	if !got.Notify.Hermes.Channels.System.Enabled {
+		t.Fatal("Hermes system channel should be enabled when no channels are configured")
+	}
+	if !reflect.DeepEqual(got.Notify.Cursor.Events, []string{"permission_required", "run_completed", "run_failed"}) {
+		t.Fatalf("Cursor events = %#v", got.Notify.Cursor.Events)
+	}
+	if !reflect.DeepEqual(got.Notify.Hermes.Events, []string{"permission_required", "run_completed"}) {
+		t.Fatalf("Hermes events = %#v", got.Notify.Hermes.Events)
+	}
+}
+
 func TestLoadMissingFileReturnsDefault(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "missing.yaml")

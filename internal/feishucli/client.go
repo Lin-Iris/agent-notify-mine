@@ -34,10 +34,11 @@ func ParseConfig() (Config, error) {
 
 func EnsureReady(ctx context.Context) (Config, error) {
 	cfg, err := ParseConfig()
-	if err == nil {
+	if err == nil && cfg.AppID != "" && cfg.AppSecret != "" && cfg.UserOpenID != "" {
 		return cfg, nil
 	}
 
+	// Config missing, incomplete, or no authorized user — re-run QR setup.
 	if err := prepareCLI(ctx); err != nil {
 		return Config{}, err
 	}

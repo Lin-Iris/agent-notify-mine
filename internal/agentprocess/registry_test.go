@@ -86,6 +86,16 @@ func TestStartWithOptionsCapturesOutput(t *testing.T) {
 	}
 }
 
+func TestRemoteEnvEntries(t *testing.T) {
+	got := remoteEnvEntries("codex-main", "task-1")
+	if !containsArg(got, "AGENT_NOTIFY_REMOTE_PROFILE=codex-main") {
+		t.Fatalf("remote env = %v, want profile", got)
+	}
+	if !containsArg(got, "AGENT_NOTIFY_REMOTE_TASK_ID=task-1") {
+		t.Fatalf("remote env = %v, want task id", got)
+	}
+}
+
 func containsArg(args []string, want string) bool {
 	for _, arg := range args {
 		if arg == want {

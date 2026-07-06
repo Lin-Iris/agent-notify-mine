@@ -11,12 +11,12 @@ import (
 
 // payload 描述 Hermes shell hook 通过 stdin 投递的 JSON。
 type payload struct {
-	HookEventName string       `json:"hook_event_name"`
-	SessionID     string       `json:"session_id"`
-	CWD           string       `json:"cwd"`
-	ToolName      string       `json:"tool_name"`
+	HookEventName string         `json:"hook_event_name"`
+	SessionID     string         `json:"session_id"`
+	CWD           string         `json:"cwd"`
+	ToolName      string         `json:"tool_name"`
 	ToolInput     map[string]any `json:"tool_input"`
-	Extra         extraPayload `json:"extra"`
+	Extra         extraPayload   `json:"extra"`
 }
 
 type extraPayload struct {
@@ -49,7 +49,7 @@ func (a Adapter) Parse(data []byte) (event.Event, error) {
 
 	switch p.HookEventName {
 	case "post_llm_call":
-		base.Status = event.StatusPending
+		base.Status = event.StatusCompleted
 		base.Title = notify.FormatTitle("hermes", "run_completed")
 		body := notify.DefaultBody("run_completed")
 		if p.Extra.UserMessage != "" {

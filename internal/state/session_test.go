@@ -42,9 +42,9 @@ func TestCodexStopNotifies(t *testing.T) {
 	}
 }
 
-func TestClaudeStopIdleDoesNotNotify(t *testing.T) {
-	// Claude Code 可能空闲时触发 Stop（打开即关闭）
-	// 无前置事件时不应通知
+func TestClaudeStopNotifies(t *testing.T) {
+	// Claude Code 的正常完成通常只有 Stop，没有前置授权事件。
+	// Stop 本身就是完成信号，不能被当成空闲事件吞掉。
 	store := NewSessionStore(tempSessionPath(t))
 	adv := NewAdvancer(store)
 
@@ -63,8 +63,51 @@ func TestClaudeStopIdleDoesNotNotify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Advance error: %v", err)
 	}
-	if decision.Notify {
-		t.Fatalf("Claude idle Stop should NOT notify, got Notify=true reason=%s", decision.Reason)
+	if !decision.Notify {
+		t.Fatalf("Claude Stop should notify, got Notify=false reason=%s", decision.Reason)
+	}
+	if decision.Status != event.StatusCompleted {
+		t.Fatalf("Status = %q, want %q", decision.Status, event.StatusCompleted)
+	}
+}
+
+func TestCompletedStatusNotifiesRegardlessOfHookName(t *testing.T) {
+	store := NewSessionStore(tempSessionPath(t))
+	adv := NewAdvancer(store)
+
+	tests := []struct {
+		name      string
+		agent     string
+		hookEvent string
+	}{
+		{name: "cursor lowercase stop", agent: "cursor", hookEvent: "stop"},
+		{name: "hermes post llm call", agent: "hermes", hookEvent: "post_llm_call"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evt := event.Event{
+				SpecVersion: event.CurrentSpecVersion,
+				EventID:     event.NewEventID(),
+				Agent:       tt.agent,
+				HookEvent:   tt.hookEvent,
+				Status:      event.StatusCompleted,
+				SessionID:   "sess-" + tt.agent,
+				Workspace:   "/tmp",
+				ReceivedAt:  time.Now(),
+			}
+
+			decision, err := adv.Advance(evt)
+			if err != nil {
+				t.Fatalf("Advance error: %v", err)
+			}
+			if !decision.Notify {
+				t.Fatalf("%s should notify, got reason=%s", tt.hookEvent, decision.Reason)
+			}
+			if decision.Status != event.StatusCompleted {
+				t.Fatalf("Status = %q, want %q", decision.Status, event.StatusCompleted)
+			}
+		})
 	}
 }
 
@@ -140,7 +183,7 @@ func TestStopAfterPermissionNotifiesOnce(t *testing.T) {
 		t.Fatalf("Status = %q, want %q", stopDecision.Status, event.StatusCompleted)
 	}
 
-		// Third Stop — 状态机不阻止，由 dispatcher 时间窗口去重
+	// Third Stop — 状态机不阻止，由 dispatcher 时间窗口去重
 	dupStop := stop
 	dupStop.EventID = event.NewEventID()
 	dupDecision, err := adv.Advance(dupStop)
@@ -148,7 +191,31 @@ func TestStopAfterPermissionNotifiesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !dupDecision.Notify {
-			t.Fatal("duplicate Stop should notify (delegate dedup to dispatcher)")
+		t.Fatal("duplicate Stop should notify (delegate dedup to dispatcher)")
+	}
+}
+
+func TestUnknownPendingEventDoesNotNotify(t *testing.T) {
+	store := NewSessionStore(tempSessionPath(t))
+	adv := NewAdvancer(store)
+
+	evt := event.Event{
+		SpecVersion: event.CurrentSpecVersion,
+		EventID:     event.NewEventID(),
+		Agent:       "claude_code",
+		HookEvent:   "Unknown",
+		Status:      event.StatusPending,
+		SessionID:   "sess-unknown-1",
+		Workspace:   "/tmp",
+		ReceivedAt:  time.Now(),
+	}
+
+	decision, err := adv.Advance(evt)
+	if err != nil {
+		t.Fatalf("Advance error: %v", err)
+	}
+	if decision.Notify {
+		t.Fatalf("unknown pending event should not notify, got reason=%s", decision.Reason)
 	}
 }
 

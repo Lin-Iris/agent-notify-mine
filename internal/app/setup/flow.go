@@ -286,6 +286,17 @@ func (s *Service) configureRemoteFeishuConversation(ctx context.Context, prompte
 	if err != nil {
 		return nil, err
 	}
+
+	// Check existing feishu config first
+	configured, err := s.handleFeishuSetup(ctx, prompter, output, &cfg, agent)
+	if err != nil {
+		return nil, err
+	}
+	if !configured {
+		output.Writef("跳过远程飞书对话配置\n")
+		return &SetupResult{Agent: agent, ConfigPath: path}, nil
+	}
+
 	output.Writef("为这个 Agent 配置远程飞书对话\n")
 	feishuCfg, err := s.prepareFeishuConfig(ctx)
 	if err != nil {
@@ -316,6 +327,8 @@ func (s *Service) configureRemoteFeishuConversation(ctx context.Context, prompte
 	}
 	next.Profiles[profileName] = profile
 	next.Broker.ActiveProfile = profileName
+	// Auto-enable feishu notification channel (approval uses same bot)
+	setNotifyFeishuEnabled(&next, agent, true)
 	if err := s.saveConfig(path, next); err != nil {
 		return nil, err
 	}
@@ -358,6 +371,9 @@ func (s *Service) configureClaude(req configureAgentRequest) (configuredAgent, e
 	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
 		return configuredAgent{}, err
 	}
+	if req.channels.Feishu {
+		s.syncFeishuToProfile(&next, req.agent)
+	}
 	channels, err := promptWebhookURLs(req.prompter, req.output, next.Notify.ClaudeCode.Channels, req.channels)
 	if err != nil {
 		return configuredAgent{}, err
@@ -386,6 +402,9 @@ func (s *Service) configureCodex(req configureAgentRequest) (configuredAgent, er
 	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
 		return configuredAgent{}, err
 	}
+	if req.channels.Feishu {
+		s.syncFeishuToProfile(&next, req.agent)
+	}
 	channels, err := promptWebhookURLs(req.prompter, req.output, next.Notify.Codex.Channels, req.channels)
 	if err != nil {
 		return configuredAgent{}, err
@@ -407,12 +426,16 @@ func (s *Service) configureCodex(req configureAgentRequest) (configuredAgent, er
 	next.Agent.Codex.Enabled = true
 	return configuredAgent{cfg: next, settingsPath: settingsPath}, nil
 }
+
 func (s *Service) configureCodeBuddy(req configureAgentRequest) (configuredAgent, error) {
 	next := req.cfg
 	next.Notify.CodeBuddy.Channels = applyChannelSelection(next.Notify.CodeBuddy.Channels, req.channels)
 	next.Notify.CodeBuddy.Events = dedupeStrings(req.events)
 	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
 		return configuredAgent{}, err
+	}
+	if req.channels.Feishu {
+		s.syncFeishuToProfile(&next, req.agent)
 	}
 	channels, err := promptWebhookURLs(req.prompter, req.output, next.Notify.CodeBuddy.Channels, req.channels)
 	if err != nil {
@@ -429,7 +452,7 @@ func (s *Service) configureCodeBuddy(req configureAgentRequest) (configuredAgent
 	if err := s.codebuddyIntegration.Install(settingsPath, resolvedBinary); err != nil {
 		return configuredAgent{}, fmt.Errorf("安装 codebuddy hooks 失败: %w", err)
 	}
-	req.output.Writef("codebuddy hooks 安装: %sn", settingsPath)
+	req.output.Writef("codebuddy hooks 安装: %s\n", settingsPath)
 	next.Agent.CodeBuddy.InstallScope = agentScope
 	next.Agent.CodeBuddy.Enabled = true
 	return configuredAgent{cfg: next, settingsPath: settingsPath}, nil
@@ -441,6 +464,9 @@ func (s *Service) configureCursor(req configureAgentRequest) (configuredAgent, e
 	next.Notify.Cursor.Events = dedupeStrings(req.events)
 	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
 		return configuredAgent{}, err
+	}
+	if req.channels.Feishu {
+		s.syncFeishuToProfile(&next, req.agent)
 	}
 	channels, err := promptWebhookURLs(req.prompter, req.output, next.Notify.Cursor.Channels, req.channels)
 	if err != nil {
@@ -469,6 +495,9 @@ func (s *Service) configureHermes(req configureAgentRequest) (configuredAgent, e
 	next.Notify.Hermes.Events = dedupeStrings(req.events)
 	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
 		return configuredAgent{}, err
+	}
+	if req.channels.Feishu {
+		s.syncFeishuToProfile(&next, req.agent)
 	}
 	channels, err := promptWebhookURLs(req.prompter, req.output, next.Notify.Hermes.Channels, req.channels)
 	if err != nil {
@@ -579,4 +608,107 @@ func normalizedInstallScope(scope string) string {
 		return installScopePrj
 	}
 	return installScopeUsr
+}
+
+// ── Feishu helpers ─────────────────────────────────────────
+
+// setNotifyFeishuEnabled enables or disables the feishu notification channel for an agent.
+func setNotifyFeishuEnabled(cfg *config.Config, agent string, enabled bool) {
+	switch agent {
+	case agentClaude:
+		cfg.Notify.ClaudeCode.Channels.Feishu.Enabled = enabled
+	case agentCodex:
+		cfg.Notify.Codex.Channels.Feishu.Enabled = enabled
+	case agentCodeBuddy:
+		cfg.Notify.CodeBuddy.Channels.Feishu.Enabled = enabled
+	case agentCursor:
+		cfg.Notify.Cursor.Channels.Feishu.Enabled = enabled
+	case agentHermes:
+		cfg.Notify.Hermes.Channels.Feishu.Enabled = enabled
+	}
+}
+
+// profileFeishuCredentials returns feishu credentials from the agent's profile.
+func profileFeishuCredentials(cfg config.Config, agent string) config.ProfileFeishuConfig {
+	profileName, err := remoteProfileForAgent(agent)
+	if err != nil {
+		return config.ProfileFeishuConfig{}
+	}
+	profile, ok := cfg.Profiles[profileName]
+	if !ok {
+		return config.ProfileFeishuConfig{}
+	}
+	return profile.Feishu
+}
+
+// syncFeishuToProfile reads feishu credentials from client-tools CLI and writes them
+// into the agent's profile. Skips silently if already configured or unavailable.
+func (s *Service) syncFeishuToProfile(cfg *config.Config, agent string) {
+	if cfg.Profiles == nil {
+		cfg.Profiles = config.ProfilesConfig{}
+	}
+	creds := profileFeishuCredentials(*cfg, agent)
+	if creds.HasCredentials() {
+		return // already configured, keep existing
+	}
+
+	feishuCfg, err := s.prepareFeishuConfig(context.Background())
+	if err != nil || feishuCfg.AppID == "" || feishuCfg.AppSecret == "" || feishuCfg.UserOpenID == "" {
+		return // can't read, skip silently
+	}
+
+	profileName, err := remoteProfileForAgent(agent)
+	if err != nil || profileName == "" {
+		return
+	}
+	profile := cfg.Profiles[profileName]
+	profile.Feishu = config.ProfileFeishuConfig{
+		AppID:       feishuCfg.AppID,
+		AppSecret:   feishuCfg.AppSecret,
+		OwnerOpenID: feishuCfg.UserOpenID,
+	}
+	cfg.Profiles[profileName] = profile
+}
+
+// handleFeishuSetup checks if feishu is already configured for the agent.
+// If yes, offers keep/replace/remove. Runs QR scan if needed.
+// Returns false if user chose to remove or skip.
+func (s *Service) handleFeishuSetup(ctx context.Context, prompter Prompter, output OutputWriter, cfg *config.Config, agent string) (bool, error) {
+	creds := profileFeishuCredentials(*cfg, agent)
+	if creds.HasCredentials() {
+		choice, err := prompter.Select("飞书当前已配置", []PromptOption{
+			{Label: "保持配置，继续 ✅", Value: "keep"},
+			{Label: "重新配置（覆盖）", Value: "replace"},
+			{Label: "移除飞书配置", Value: "remove"},
+		}, "keep")
+		if err != nil {
+			return false, err
+		}
+		switch choice {
+		case "keep":
+			return true, nil
+		case "remove":
+			profileName, _ := remoteProfileForAgent(agent)
+			if profileName != "" && cfg.Profiles != nil {
+				profile := cfg.Profiles[profileName]
+				profile.Feishu = config.ProfileFeishuConfig{}
+				cfg.Profiles[profileName] = profile
+			}
+			setNotifyFeishuEnabled(cfg, agent, false)
+			output.Writef("飞书配置已移除\n")
+			return false, nil
+		case "replace":
+			// 清空旧配置，强制重新扫码
+			profileName, _ := remoteProfileForAgent(agent)
+			if profileName != "" && cfg.Profiles != nil {
+				p := cfg.Profiles[profileName]
+				p.Feishu = config.ProfileFeishuConfig{}
+				cfg.Profiles[profileName] = p
+			}
+			setNotifyFeishuEnabled(cfg, agent, false)
+			output.Writef("已清除旧配置，将重新扫码\n")
+			// fall through to QR scan
+		}
+	}
+	return true, nil // proceed with QR scan
 }

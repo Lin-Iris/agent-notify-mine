@@ -80,8 +80,8 @@ func TestParseNotificationNeedsInputVariant(t *testing.T) {
 	}
 }
 
-func TestParseStopReturnsPending(t *testing.T) {
-	// Stop 不再映射为 completed，而是 pending
+func TestParseStopReturnsCompleted(t *testing.T) {
+	// Stop 是任务完成提醒，adapter 直接映射成 completed。
 	data := []byte(`{"hook_event_name":"Stop","session_id":"s1","cwd":"/tmp"}`)
 
 	evt, err := testAdapter.Parse(data)
@@ -91,8 +91,8 @@ func TestParseStopReturnsPending(t *testing.T) {
 	if evt.HookEvent != "Stop" {
 		t.Fatalf("HookEvent = %q, want Stop", evt.HookEvent)
 	}
-	if evt.Status != event.StatusPending {
-		t.Fatalf("Status = %q, want %q (Stop should not map to completed)", evt.Status, event.StatusPending)
+	if evt.Status != event.StatusCompleted {
+		t.Fatalf("Status = %q, want %q", evt.Status, event.StatusCompleted)
 	}
 	if evt.Agent != "claude_code" {
 		t.Fatalf("Agent = %q, want claude_code", evt.Agent)

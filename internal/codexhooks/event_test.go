@@ -38,7 +38,7 @@ func TestParsePermissionRequest(t *testing.T) {
 	}
 }
 
-func TestParseStopReturnsPending(t *testing.T) {
+func TestParseStopReturnsCompleted(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "codex-hooks", "stop.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -54,8 +54,8 @@ func TestParseStopReturnsPending(t *testing.T) {
 	if evt.HookEvent != "Stop" {
 		t.Fatalf("HookEvent = %q, want Stop", evt.HookEvent)
 	}
-	if evt.Status != event.StatusPending {
-		t.Fatalf("Status = %q, want %q (Stop should not map to completed)", evt.Status, event.StatusPending)
+	if evt.Status != event.StatusCompleted {
+		t.Fatalf("Status = %q, want %q", evt.Status, event.StatusCompleted)
 	}
 	// last_assistant_message 非空时应作为 Body
 	if !strings.Contains(evt.Body, "cargo build") {

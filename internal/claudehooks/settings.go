@@ -22,10 +22,10 @@ type eventMeta struct {
 }
 
 var managedEvents = []eventMeta{
-	{EventKey: "PermissionRequest",   SubCommand: "permission_required", HasMatcher: true},
-	{EventKey: "Notification",        SubCommand: "input_required",     HasMatcher: true},
-	{EventKey: "Stop",                SubCommand: "run_completed",      HasMatcher: false},
-	{EventKey: "PostToolUseFailure",  SubCommand: "run_failed",         HasMatcher: true},
+	{EventKey: "PermissionRequest", SubCommand: "permission_required", HasMatcher: true},
+	{EventKey: "Notification", SubCommand: "input_required", HasMatcher: true},
+	{EventKey: "Stop", SubCommand: "run_completed", HasMatcher: false},
+	{EventKey: "PostToolUseFailure", SubCommand: "run_failed", HasMatcher: true},
 }
 
 func BuildHookSettings(binaryPath string) map[string]any {
@@ -33,7 +33,7 @@ func BuildHookSettings(binaryPath string) map[string]any {
 	hooks := map[string]any{}
 
 	for _, evt := range managedEvents {
-		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
+		command := hookCommand(binaryPath)
 
 		entry := map[string]any{
 			"hooks": []any{
@@ -70,10 +70,11 @@ func Install(path string, binaryPath string) error {
 
 	for _, evt := range managedEvents {
 		if eventHasManagedHook(hooks, evt.EventKey) {
+			normalizeManagedHookCommands(hooks, evt.EventKey, hookCommand(binaryPath))
 			continue
 		}
 
-		command := binaryPath + " " + hookCommandMarker + " " + evt.SubCommand
+		command := hookCommand(binaryPath)
 		entry := map[string]any{
 			"hooks": []any{
 				map[string]any{
@@ -93,6 +94,10 @@ func Install(path string, binaryPath string) error {
 	settings["hooks"] = hooks
 
 	return writeSettings(path, settings)
+}
+
+func hookCommand(binaryPath string) string {
+	return binaryPath + " " + hookCommandMarker
 }
 
 // IsInstalled 检查 settings 中是否已挂载 agent-notify 的 hook。
@@ -229,6 +234,22 @@ func eventHasManagedHook(hooks map[string]any, event string) bool {
 		}
 	}
 	return false
+}
+
+func normalizeManagedHookCommands(hooks map[string]any, event string, command string) {
+	for _, entry := range toAnySlice(hooks[event]) {
+		entryMap, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, h := range toAnySlice(entryMap["hooks"]) {
+			hookMap, ok := h.(map[string]any)
+			if !ok || !isManagedHook(hookMap) {
+				continue
+			}
+			hookMap["command"] = command
+		}
+	}
 }
 
 func isManagedHook(hook any) bool {

@@ -126,7 +126,6 @@ type ApprovalConfig struct {
 	TimeoutSeconds int    `yaml:"timeout_seconds"`
 	DefaultAccess  string `yaml:"default_access"`
 	MaxAccess      string `yaml:"max_access"`
-	CodexMode      string `yaml:"codex_mode"` // notify_only or hook_decision
 }
 
 type ProfilesConfig map[string]ProfileConfig
@@ -146,6 +145,10 @@ type ProfileFeishuConfig struct {
 	AppSecret   string `yaml:"app_secret,omitempty"`
 	OwnerOpenID string `yaml:"owner_open_id,omitempty"`
 	ChatID      string `yaml:"chat_id,omitempty"`
+}
+
+func (f ProfileFeishuConfig) HasCredentials() bool {
+	return f.AppID != "" && f.AppSecret != ""
 }
 
 func Default() Config {
@@ -258,7 +261,6 @@ func Default() Config {
 			TimeoutSeconds: 300,
 			DefaultAccess:  "workspace-write",
 			MaxAccess:      "workspace-write",
-			CodexMode:      "notify_only",
 		},
 		Profiles: ProfilesConfig{
 			"claude-main": {
@@ -417,8 +419,14 @@ func Load(path string) (Config, error) {
 	if len(cfg.Notify.Cursor.Events) == 0 {
 		cfg.Notify.Cursor.Events = []string{"permission_required", "run_completed", "run_failed"}
 	}
+	if cfg.Agent.Cursor.Enabled && allChannelsDisabled(cfg.Notify.Cursor.Channels) {
+		cfg.Notify.Cursor.Channels.System.Enabled = true
+	}
 	if len(cfg.Notify.Hermes.Events) == 0 {
 		cfg.Notify.Hermes.Events = []string{"permission_required", "run_completed"}
+	}
+	if cfg.Agent.Hermes.Enabled && allChannelsDisabled(cfg.Notify.Hermes.Channels) {
+		cfg.Notify.Hermes.Channels.System.Enabled = true
 	}
 	if cfg.Behavior.DedupeSeconds == 0 {
 		cfg.Behavior.DedupeSeconds = 60
@@ -440,9 +448,6 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Approval.MaxAccess == "" {
 		cfg.Approval.MaxAccess = "workspace-write"
-	}
-	if cfg.Approval.CodexMode == "" {
-		cfg.Approval.CodexMode = "notify_only"
 	}
 	if cfg.Profiles == nil {
 		cfg.Profiles = ProfilesConfig{}

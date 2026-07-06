@@ -130,7 +130,11 @@ func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 		senders = append(senders, notify.NewSystemSender(notify.DefaultRunner))
 	}
 	if notifyCfg.Channels.Feishu.Enabled {
-		senders = append(senders, notify.NewDefaultFeishuSender())
+		if sender := profileFeishuSender(cfg, msg); sender != nil {
+			senders = append(senders, sender)
+		} else {
+			senders = append(senders, notify.NewDefaultFeishuSender())
+		}
 	}
 	if notifyCfg.Channels.WechatWork.Enabled && notifyCfg.Channels.WechatWork.WebhookURL != "" {
 		senders = append(senders, notify.NewWechatWorkSender(notifyCfg.Channels.WechatWork.WebhookURL))
@@ -152,6 +156,36 @@ func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 	}
 
 	return senders
+}
+
+func profileFeishuSender(cfg config.Config, msg notify.Message) notify.Sender {
+	profileName := msg.Profile
+	if profileName == "" {
+		profileName = defaultProfileForAgent(msg.Agent)
+	}
+	if profileName == "" {
+		return nil
+	}
+	profile, ok := cfg.Profiles[profileName]
+	if !ok {
+		return nil
+	}
+	sender, err := notify.NewProfileFeishuSender(profileName, profile)
+	if err != nil {
+		return nil
+	}
+	return sender
+}
+
+func defaultProfileForAgent(agent string) string {
+	switch agent {
+	case "claude", "claude_code":
+		return "claude-main"
+	case "codex":
+		return "codex-main"
+	default:
+		return ""
+	}
 }
 
 func notifyConfigForAgent(cfg config.Config, agent string) config.AgentNotifyConfig {

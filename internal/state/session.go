@@ -31,9 +31,9 @@ type SessionRecord struct {
 	Status      SessionStatus `json:"status"`
 	StartedAt   time.Time     `json:"started_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`
-	HasRunEvent bool          `json:"has_run_event"` // true if any actionable event seen
+	HasRunEvent bool          `json:"has_run_event"` // legacy activity marker kept for stored state compatibility
 	EventCount  int           `json:"event_count"`
-	Notified    bool          `json:"notified"`       // terminal notification already sent
+	Notified    bool          `json:"notified"` // terminal notification already sent
 	FailureMsg  string        `json:"failure_msg,omitempty"`
 }
 
@@ -44,9 +44,9 @@ type sessionFile struct {
 
 // AdvanceDecision is returned by Advancer.Advance().
 type AdvanceDecision struct {
-	Notify bool              // true = caller should send a notification
-	Status event.Status      // deduced status for the notification
-	Reason string            // human-readable explanation (for logging)
+	Notify bool         // true = caller should send a notification
+	Status event.Status // deduced status for the notification
+	Reason string       // human-readable explanation (for logging)
 }
 
 // ── SessionStore ───────────────────────────────────────────
@@ -169,15 +169,11 @@ func NewAdvancer(store *SessionStore) *Advancer {
 //
 // State transitions:
 //
-//	NEW ──(any event with actionable status)──> ACTIVE
-//	ACTIVE ──(PostToolUseFailure)──> FAILED (notify)
-//	ACTIVE ──(Stop, HasRunEvent=true)──> COMPLETED (notify once)
-//	ACTIVE ──(PermissionRequest)──> ACTIVE (notify)
-//	ACTIVE ──(InputRequired)──> ACTIVE (notify)
-//	ACTIVE ──(SessionEnd, HasRunEvent=true)──> COMPLETED (notify)
-//	NEW ──(Stop alone)──> NEW, no notification
-//	NEW ──(SessionEnd alone)──> NEW, no notification
-//	COMPLETED ──(PostToolUseFailure)──> FAILED (notify again)
+//	Completed status / Stop / SessionEnd ──> COMPLETED (notify)
+//	PermissionRequest ──> ACTIVE (notify)
+//	InputRequired / PreToolUse ──> ACTIVE (notify)
+//	Failed status / PostToolUseFailure ──> FAILED (notify)
+//	Pending unknown event ──> keep current status (no notification)
 func (a *Advancer) Advance(evt event.Event) (AdvanceDecision, error) {
 	rec, err := a.store.Load(evt.SessionID)
 	if err != nil {
@@ -203,17 +199,12 @@ func (a *Advancer) Advance(evt event.Event) (AdvanceDecision, error) {
 }
 
 func (a *Advancer) applyEvent(evt event.Event, rec *SessionRecord) AdvanceDecision {
-	switch evt.HookEvent {
-	case "Stop":
-		// Codex 只发 Stop 作为完成信号，无其他前置事件。
-		// 对 Codex 来说，Stop 本身就表示"做了工作"。
-		if evt.Agent == "codex" || evt.Agent == "codebuddy" {
-			rec.HasRunEvent = true
-		}
-		return a.handleStop(rec)
-	case "SessionEnd":
-		return a.handleSessionEnd(rec)
-	case "PermissionRequest":
+	switch evt.Status {
+	case event.StatusCompleted:
+		return a.completeSession(rec, "event completed")
+	case event.StatusFailed:
+		return a.failSession(rec, evt.Body, "event failed")
+	case event.StatusPermissionReq:
 		rec.HasRunEvent = true
 		rec.Status = SessActive
 		return AdvanceDecision{
@@ -221,36 +212,30 @@ func (a *Advancer) applyEvent(evt event.Event, rec *SessionRecord) AdvanceDecisi
 			Status: event.StatusPermissionReq,
 			Reason: "permission requested by agent",
 		}
-	case "PostToolUseFailure":
-		rec.HasRunEvent = true
-		rec.Status = SessFailed
-		rec.Notified = true
-		rec.FailureMsg = evt.Body
-		return AdvanceDecision{
-			Notify: true,
-			Status: event.StatusFailed,
-			Reason: "tool execution failure",
-		}
-	case "Notification":
-		// CodeBuddy uses matcher-based notifications
-		// The adapter has already determined the status
-		rec.HasRunEvent = true
-		rec.Status = SessActive
-		return AdvanceDecision{
-			Notify: true,
-			Status: evt.Status,
-			Reason: "agent notification: " + string(evt.Status),
-		}
-	case "PreToolUse":
+	case event.StatusInputRequired:
 		rec.HasRunEvent = true
 		rec.Status = SessActive
 		return AdvanceDecision{
 			Notify: true,
 			Status: event.StatusInputRequired,
-			Reason: "pre-tool-use notification",
+			Reason: "agent input required",
 		}
+	}
+
+	switch evt.HookEvent {
+	case "Stop":
+		return a.completeSession(rec, "stop hook completed")
+	case "SessionEnd":
+		return a.completeSession(rec, "session ended")
+	case "PermissionRequest":
+		return a.activateSession(event.StatusPermissionReq, "permission requested by agent", rec)
+	case "PostToolUseFailure":
+		return a.failSession(rec, evt.Body, "tool execution failure")
+	case "Notification":
+		return a.activateSession(evt.Status, "agent notification: "+string(evt.Status), rec)
+	case "PreToolUse":
+		return a.activateSession(event.StatusInputRequired, "pre-tool-use notification", rec)
 	default:
-		// Unknown event — record the activity but don't notify
 		if evt.Status == event.StatusPending {
 			return AdvanceDecision{
 				Notify: false,
@@ -268,40 +253,35 @@ func (a *Advancer) applyEvent(evt event.Event, rec *SessionRecord) AdvanceDecisi
 	}
 }
 
-func (a *Advancer) handleStop(rec *SessionRecord) AdvanceDecision {
-	if !rec.HasRunEvent {
-		// Idle stop — no work was done, no notification
-		return AdvanceDecision{
-			Notify: false,
-			Status: event.StatusPending,
-			Reason: "idle stop, no events seen this session",
-		}
-	}
-	// 不检查 Notified——让 dispatcher 的原始时间窗口去重。
-	// 这样同一会话中多个任务都能触发生成通知。
-	rec.Status = SessCompleted
-	rec.Notified = true
+func (a *Advancer) activateSession(status event.Status, reason string, rec *SessionRecord) AdvanceDecision {
+	rec.HasRunEvent = true
+	rec.Status = SessActive
 	return AdvanceDecision{
 		Notify: true,
-		Status: event.StatusCompleted,
-		Reason: "session completed with activity",
+		Status: status,
+		Reason: reason,
 	}
 }
 
-func (a *Advancer) handleSessionEnd(rec *SessionRecord) AdvanceDecision {
-	if !rec.HasRunEvent {
-		return AdvanceDecision{
-			Notify: false,
-			Status: event.StatusPending,
-			Reason: "session ended with no activity",
-		}
-	}
-	// 同 handleStop：由 dispatcher 时间窗口去重
+func (a *Advancer) completeSession(rec *SessionRecord, reason string) AdvanceDecision {
+	rec.HasRunEvent = true
 	rec.Status = SessCompleted
 	rec.Notified = true
 	return AdvanceDecision{
 		Notify: true,
 		Status: event.StatusCompleted,
-		Reason: "session ended with activity",
+		Reason: reason,
+	}
+}
+
+func (a *Advancer) failSession(rec *SessionRecord, failureMsg string, reason string) AdvanceDecision {
+	rec.HasRunEvent = true
+	rec.Status = SessFailed
+	rec.Notified = true
+	rec.FailureMsg = failureMsg
+	return AdvanceDecision{
+		Notify: true,
+		Status: event.StatusFailed,
+		Reason: reason,
 	}
 }

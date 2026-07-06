@@ -52,12 +52,9 @@ func (a Adapter) Parse(data []byte) (event.Event, error) {
 		base.Body = fmt.Sprintf("工具: %s\n操作需要您的授权许可", p.ToolName)
 		return base, nil
 
-
 	case "Stop":
-		// Stop 是生命周期信号，不是成功完成。
-		// 状态机根据会话上下文推断最终状态。
-		base.Status = event.StatusPending
-		base.Title = notify.FormatTitle("codebuddy", "running")
+		base.Status = event.StatusCompleted
+		base.Title = notify.FormatTitle("codebuddy", "run_completed")
 		base.Body = notify.DefaultBody("run_completed")
 		return base, nil
 
@@ -91,10 +88,8 @@ func (a Adapter) Parse(data []byte) (event.Event, error) {
 		return base, nil
 
 	case "SessionEnd":
-		// SessionEnd 是会话结束信号，不是成功完成。
-		// 状态机根据会话上下文推断最终状态。
-		base.Status = event.StatusPending
-		base.Title = notify.FormatTitle("codebuddy", "running")
+		base.Status = event.StatusCompleted
+		base.Title = notify.FormatTitle("codebuddy", "run_completed")
 		base.Body = "CodeBuddy 会话已结束"
 		return base, nil
 

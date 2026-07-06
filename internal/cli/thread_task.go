@@ -371,6 +371,9 @@ func startThreadTask(ctx context.Context, profile, prompt string) (agentprocess.
 	if !cfg.Broker.Enabled || !p.Enabled {
 		return agentprocess.Record{}, threadstore.Thread{}, threadstore.Task{}, fmt.Errorf("profile %s is disconnected", profile)
 	}
+	if err := ensureRemoteAgentCLIAvailable(p.Agent); err != nil {
+		return agentprocess.Record{}, threadstore.Thread{}, threadstore.Task{}, err
+	}
 	store, err := threadStore()
 	if err != nil {
 		return agentprocess.Record{}, threadstore.Thread{}, threadstore.Task{}, err

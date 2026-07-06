@@ -130,10 +130,16 @@ func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 		senders = append(senders, notify.NewSystemSender(notify.DefaultRunner))
 	}
 	if notifyCfg.Channels.Feishu.Enabled {
-		if sender := profileFeishuSender(cfg, msg); sender != nil {
-			senders = append(senders, sender)
-		} else {
-			senders = append(senders, notify.NewDefaultFeishuSender())
+		// 当飞书远程（broker）开启时，抑制所有 hook 通知卡片。
+		// broker 通过任务状态卡片、审批卡片等机制单独推送，
+		// DispatchEvent 再发飞书卡片就是重复的。
+		// 其他渠道（系统通知/微信等）不受影响。
+		if !suppressFeishuHookCard(cfg, msg) {
+			if sender := profileFeishuSender(cfg, msg); sender != nil {
+				senders = append(senders, sender)
+			} else {
+				senders = append(senders, notify.NewDefaultFeishuSender())
+			}
 		}
 	}
 	if notifyCfg.Channels.WechatWork.Enabled && notifyCfg.Channels.WechatWork.WebhookURL != "" {
@@ -201,6 +207,26 @@ func notifyConfigForAgent(cfg config.Config, agent string) config.AgentNotifyCon
 	default:
 		return cfg.Notify.ClaudeCode
 	}
+}
+
+// suppressFeishuHookCard 当飞书远程（broker）开启时，抑制所有 hook 通知卡片。
+// broker 通过任务状态卡片（BuildTaskStatusCard）、审批卡片（sendApprovalPrompt）
+// 等机制单独推送，DispatchEvent 的飞书卡片变成重复消息。
+// 抑制范围：所有事件类型（run_completed, permission_required, input_required,
+// run_failed 等）。其他渠道（系统通知/微信等）不受影响。
+func suppressFeishuHookCard(cfg config.Config, msg notify.Message) bool {
+	if !cfg.Broker.Enabled || !cfg.Broker.LongConnection {
+		return false
+	}
+	profileName := msg.Profile
+	if profileName == "" {
+		profileName = defaultProfileForAgent(msg.Agent)
+	}
+	if profileName != cfg.Broker.ActiveProfile {
+		return false
+	}
+	profile, ok := cfg.Profiles[profileName]
+	return ok && profile.Enabled && profile.Feishu.HasCredentials()
 }
 
 func contains(items []string, want string) bool {

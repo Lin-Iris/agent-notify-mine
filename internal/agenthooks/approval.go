@@ -17,14 +17,30 @@ import (
 
 type hookDecisionOutput struct {
 	HookSpecificOutput struct {
-		HookEventName            string         `json:"hookEventName"`
-		PermissionDecision       string         `json:"permissionDecision"`
-		PermissionDecisionReason string         `json:"permissionDecisionReason"`
-		UpdatedInput             map[string]any `json:"updatedInput,omitempty"`
-		AdditionalContext        string         `json:"additionalContext,omitempty"`
+		HookEventName     string                      `json:"hookEventName"`
+		Decision          *hookPermissionRequestReply `json:"decision,omitempty"`
+		AdditionalContext string                      `json:"additionalContext,omitempty"`
 	} `json:"hookSpecificOutput"`
 }
 
+type hookPermissionRequestReply struct {
+	Behavior     string         `json:"behavior"`
+	Reason       string         `json:"reason,omitempty"`
+	UpdatedInput map[string]any `json:"updatedInput,omitempty"`
+}
+
+const (
+	hookPermissionBehaviorAllow = "allow"
+	hookPermissionBehaviorDeny  = "deny"
+)
+
+var sendApprovalPromptForHook = sendApprovalPrompt
+
+// MaybeHandleApproval 处理远程审批请求。
+// 发送飞书审批卡片后阻塞等待用户决策（批准/拒绝）。
+// 阻塞时间由 cfg.Approval.TimeoutSeconds 控制（默认 300s）。
+// 注意：Claude Code 可能有自身的 hook 超时，如果审批太慢，
+// hook 进程可能被 Claude Code 杀掉，导致远程审批失效。
 func MaybeHandleApproval(ctx context.Context, cfg config.Config, statePath, logPath string, evt event.Event, stdout io.Writer) (bool, error) {
 	if evt.HookEvent != "PermissionRequest" {
 		return false, nil
@@ -65,20 +81,29 @@ func MaybeHandleApproval(ctx context.Context, cfg config.Config, statePath, logP
 	if err := store.Create(req); err != nil {
 		return true, err
 	}
-	if err := sendApprovalPrompt(ctx, cfg, logPath, evt, req, profileName, profile); err != nil {
+	_ = state.AppendLog(logPath, fmt.Sprintf("approval created id=%s tool=%s ttl=%v", req.ApprovalID, req.Tool, ttl))
+	if err := sendApprovalPromptForHook(ctx, cfg, logPath, evt, req, profileName, profile); err != nil {
 		_ = state.AppendLog(logPath, fmt.Sprintf("approval prompt send error id=%s err=%v", req.ApprovalID, err))
 	}
 
+	// 阻塞等待飞书审批决策
+	_ = state.AppendLog(logPath, fmt.Sprintf("approval waiting id=%s", req.ApprovalID))
 	result, err := store.Wait(ctx, req.ApprovalID, ttl)
 	if err != nil {
-		writeHookDecision(stdout, evt.HookEvent, "deny", "approval timed out or failed")
+		if writeErr := writeHookDecision(stdout, evt.HookEvent, hookPermissionBehaviorDeny, "approval timed out or failed"); writeErr != nil {
+			_ = state.AppendLog(logPath, fmt.Sprintf("approval decision write error id=%s err=%v", req.ApprovalID, writeErr))
+		}
 		return true, state.AppendLog(logPath, fmt.Sprintf("approval denied by timeout id=%s err=%v", req.ApprovalID, err))
 	}
 	if result.Status == approval.StatusApproved {
-		writeHookDecision(stdout, evt.HookEvent, "allow", "approved via Feishu approval "+req.ApprovalID)
+		if writeErr := writeHookDecision(stdout, evt.HookEvent, hookPermissionBehaviorAllow, "approved via Feishu approval "+req.ApprovalID); writeErr != nil {
+			_ = state.AppendLog(logPath, fmt.Sprintf("approval decision write error id=%s err=%v", req.ApprovalID, writeErr))
+		}
 		return true, state.AppendLog(logPath, fmt.Sprintf("approval allowed id=%s operator=%s", req.ApprovalID, result.OperatorID))
 	}
-	writeHookDecision(stdout, evt.HookEvent, "deny", firstNonEmpty(result.Reason, "denied via Feishu approval "+req.ApprovalID))
+	if writeErr := writeHookDecision(stdout, evt.HookEvent, hookPermissionBehaviorDeny, firstNonEmpty(result.Reason, "denied via Feishu approval "+req.ApprovalID)); writeErr != nil {
+		_ = state.AppendLog(logPath, fmt.Sprintf("approval decision write error id=%s err=%v", req.ApprovalID, writeErr))
+	}
 	return true, state.AppendLog(logPath, fmt.Sprintf("approval denied id=%s operator=%s", req.ApprovalID, result.OperatorID))
 }
 
@@ -108,15 +133,23 @@ func sendApprovalPrompt(ctx context.Context, cfg config.Config, logPath string, 
 	return sender.Send(sendCtx, msg)
 }
 
-func writeHookDecision(stdout io.Writer, eventName, decision, reason string) {
+func writeHookDecision(stdout io.Writer, eventName, behavior, reason string) error {
 	if stdout == nil {
-		return
+		return nil
 	}
 	var out hookDecisionOutput
 	out.HookSpecificOutput.HookEventName = eventName
-	out.HookSpecificOutput.PermissionDecision = decision
-	out.HookSpecificOutput.PermissionDecisionReason = reason
-	_ = json.NewEncoder(stdout).Encode(out)
+	out.HookSpecificOutput.Decision = &hookPermissionRequestReply{
+		Behavior: behavior,
+		Reason:   reason,
+	}
+	if err := json.NewEncoder(stdout).Encode(out); err != nil {
+		// stdout 写入失败说明 Claude Code 已经关了管道（hook 超时），
+		// 这就是对话框不消失的根本原因。
+		fmt.Fprintf(os.Stderr, "FATAL: writeHookDecision encode error: %v\n", err)
+		return err
+	}
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {

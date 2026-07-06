@@ -3,8 +3,11 @@ package agenthooks
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/hellolib/agent-notify/internal/approval"
 	"github.com/hellolib/agent-notify/internal/config"
 	"github.com/hellolib/agent-notify/internal/event"
 )
@@ -49,5 +52,140 @@ func TestMaybeHandleApprovalSkipsDisabledRemoteProfile(t *testing.T) {
 	}
 	if handled {
 		t.Fatal("disabled remote profile should not enter approval flow")
+	}
+}
+
+func TestMaybeHandleApprovalWritesAllowAfterRemoteApproval(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AGENT_NOTIFY_REMOTE_PROFILE", "claude-main")
+	cfg := remoteApprovalTestConfig()
+
+	withApprovalPrompt(t, func(ctx context.Context, cfg config.Config, logPath string, evt event.Event, req approval.Request, profileName string, profile config.ProfileConfig) error {
+		decideApproval(t, req, approval.DecisionApprove)
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	handled, err := MaybeHandleApproval(context.Background(), cfg, t.TempDir()+"/state.json", t.TempDir()+"/log.txt", testPermissionEvent(), &stdout)
+	if err != nil {
+		t.Fatalf("MaybeHandleApproval() error = %v", err)
+	}
+	if !handled {
+		t.Fatal("remote approval should be handled")
+	}
+	got := decodeHookDecision(t, stdout.Bytes())
+	if got.HookSpecificOutput.Decision == nil || got.HookSpecificOutput.Decision.Behavior != hookPermissionBehaviorAllow {
+		t.Fatalf("Decision = %#v, want behavior %q", got.HookSpecificOutput.Decision, hookPermissionBehaviorAllow)
+	}
+}
+
+func TestMaybeHandleApprovalWritesDenyAfterRemoteDenial(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AGENT_NOTIFY_REMOTE_PROFILE", "claude-main")
+	cfg := remoteApprovalTestConfig()
+
+	withApprovalPrompt(t, func(ctx context.Context, cfg config.Config, logPath string, evt event.Event, req approval.Request, profileName string, profile config.ProfileConfig) error {
+		decideApproval(t, req, approval.DecisionDeny)
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	handled, err := MaybeHandleApproval(context.Background(), cfg, t.TempDir()+"/state.json", t.TempDir()+"/log.txt", testPermissionEvent(), &stdout)
+	if err != nil {
+		t.Fatalf("MaybeHandleApproval() error = %v", err)
+	}
+	if !handled {
+		t.Fatal("remote approval should be handled")
+	}
+	got := decodeHookDecision(t, stdout.Bytes())
+	if got.HookSpecificOutput.Decision == nil || got.HookSpecificOutput.Decision.Behavior != hookPermissionBehaviorDeny {
+		t.Fatalf("Decision = %#v, want behavior %q", got.HookSpecificOutput.Decision, hookPermissionBehaviorDeny)
+	}
+}
+
+func TestMaybeHandleApprovalWritesDenyWhenWaitContextExpires(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AGENT_NOTIFY_REMOTE_PROFILE", "claude-main")
+	cfg := remoteApprovalTestConfig()
+	withApprovalPrompt(t, func(ctx context.Context, cfg config.Config, logPath string, evt event.Event, req approval.Request, profileName string, profile config.ProfileConfig) error {
+		return nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	var stdout bytes.Buffer
+	handled, err := MaybeHandleApproval(ctx, cfg, t.TempDir()+"/state.json", t.TempDir()+"/log.txt", testPermissionEvent(), &stdout)
+	if err != nil {
+		t.Fatalf("MaybeHandleApproval() error = %v", err)
+	}
+	if !handled {
+		t.Fatal("remote approval should be handled")
+	}
+	got := decodeHookDecision(t, stdout.Bytes())
+	if got.HookSpecificOutput.Decision == nil || got.HookSpecificOutput.Decision.Behavior != hookPermissionBehaviorDeny {
+		t.Fatalf("Decision = %#v, want behavior %q", got.HookSpecificOutput.Decision, hookPermissionBehaviorDeny)
+	}
+}
+
+func remoteApprovalTestConfig() config.Config {
+	cfg := config.Default()
+	cfg.Broker.Enabled = true
+	cfg.Approval.Enabled = true
+	cfg.Profiles["claude-main"] = config.ProfileConfig{
+		Agent:   "claude",
+		Enabled: true,
+		Feishu: config.ProfileFeishuConfig{
+			AppID:       "cli_a",
+			AppSecret:   "secret",
+			OwnerOpenID: "ou_owner",
+		},
+	}
+	return cfg
+}
+
+func withApprovalPrompt(t *testing.T, fn func(context.Context, config.Config, string, event.Event, approval.Request, string, config.ProfileConfig) error) {
+	t.Helper()
+	old := sendApprovalPromptForHook
+	sendApprovalPromptForHook = fn
+	t.Cleanup(func() {
+		sendApprovalPromptForHook = old
+	})
+}
+
+func decideApproval(t *testing.T, req approval.Request, decision approval.Decision) {
+	t.Helper()
+	path, err := config.ApprovalPath()
+	if err != nil {
+		t.Errorf("ApprovalPath() error = %v", err)
+		return
+	}
+	if _, err := approval.NewStore(path).Decide(req.ApprovalID, req.Token, "ou_owner", decision, "test decision"); err != nil {
+		t.Errorf("Decide() error = %v", err)
+	}
+}
+
+func decodeHookDecision(t *testing.T, raw []byte) hookDecisionOutput {
+	t.Helper()
+	var out hookDecisionOutput
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("hook decision JSON = %q, error = %v", string(raw), err)
+	}
+	return out
+}
+
+func testPermissionEvent() event.Event {
+	raw, _ := json.Marshal(map[string]any{
+		"tool_name": "Bash",
+		"tool_input": map[string]any{
+			"command": "git status",
+		},
+	})
+	return event.Event{
+		Agent:      "claude_code",
+		HookEvent:  "PermissionRequest",
+		Status:     event.StatusPermissionReq,
+		SessionID:  "s1",
+		Workspace:  "/tmp/project",
+		RawPayload: raw,
 	}
 }

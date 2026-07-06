@@ -23,15 +23,17 @@ func Handle(ctx context.Context, cfg config.Config, statePath, logPath string, s
 		return state.AppendLog(logPath, fmt.Sprintf("skip event: %v", err))
 	}
 
-	// 1. Always send notification first — unaffected by approval toggle
-	if err := agenthooks.DispatchEvent(ctx, cfg, statePath, logPath, evt); err != nil {
-		_ = state.AppendLog(logPath, fmt.Sprintf("dispatch error: %v", err))
-	}
-
-	// 2. Handle remote approval if applicable
+	// 1. Remote approval owns PermissionRequest when available. In that case it
+	// sends the approval card and writes Claude's hook decision, so a normal
+	// notification would be a duplicate card.
 	handled, err := agenthooks.MaybeHandleApproval(ctx, cfg, statePath, logPath, evt, stdout)
 	if handled {
 		return err
+	}
+
+	// 2. Plain notification path for events that remote approval did not own.
+	if err := agenthooks.DispatchEvent(ctx, cfg, statePath, logPath, evt); err != nil {
+		_ = state.AppendLog(logPath, fmt.Sprintf("dispatch error: %v", err))
 	}
 
 	return nil

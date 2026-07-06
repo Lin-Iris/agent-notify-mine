@@ -86,6 +86,50 @@ func TestStartWithOptionsCapturesOutput(t *testing.T) {
 	}
 }
 
+func TestStartWithOptionsRunsFakeClaudeWithRemoteEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script test")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\n" +
+		"echo profile=$AGENT_NOTIFY_REMOTE_PROFILE\n" +
+		"echo task=$AGENT_NOTIFY_REMOTE_TASK_ID\n" +
+		"echo args=$*\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake claude error = %v", err)
+	}
+	oldPath := os.Getenv("PATH")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+oldPath)
+	reg := NewRegistry(filepath.Join(dir, "processes.json"))
+	done := make(chan string, 1)
+	_, err := reg.StartWithOptions(context.Background(), StartOptions{
+		Profile:        "claude-main",
+		Agent:          "claude",
+		Workspace:      mustGetwd(t),
+		PermissionMode: "workspace-write",
+		Prompt:         "ignored",
+		LogsDir:        dir,
+		TaskID:         "task_test",
+		OnExit: func(_ Record, output string, _ int, _ error) {
+			done <- output
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartWithOptions error = %v", err)
+	}
+	select {
+	case output := <-done:
+		for _, want := range []string{"profile=claude-main", "task=task_test", "--output-format stream-json"} {
+			if !strings.Contains(output, want) {
+				t.Fatalf("output = %q, want %q", output, want)
+			}
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for fake claude output")
+	}
+}
+
 func TestRemoteEnvEntries(t *testing.T) {
 	got := remoteEnvEntries("codex-main", "task-1")
 	if !containsArg(got, "AGENT_NOTIFY_REMOTE_PROFILE=codex-main") {

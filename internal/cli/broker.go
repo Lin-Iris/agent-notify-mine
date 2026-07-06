@@ -36,6 +36,7 @@ func newBrokerCmd(ctx context.Context, streams Streams) *cobra.Command {
 		newBrokerCardCmd(ctx, streams),
 		newBrokerApproveCmd(streams, approval.DecisionApprove),
 		newBrokerApproveCmd(streams, approval.DecisionDeny),
+		newBrokerPendingCmd(streams),
 		newBrokerDisconnectCmd(streams),
 		newBrokerTaskCmd(ctx, streams),
 		newBrokerCommandCmd(streams),
@@ -436,6 +437,35 @@ func newBrokerCardCmd(ctx context.Context, streams Streams) *cobra.Command {
 	cmd.Flags().StringVar(&profile, "profile", "", "profile name")
 	cmd.Flags().StringVar(&view, "view", "home", "home, threads, thread, or task")
 	return cmd
+}
+
+func newBrokerPendingCmd(streams Streams) *cobra.Command {
+	return &cobra.Command{
+		Use:   "pending",
+		Short: "List pending approval requests",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path, err := config.ApprovalPath()
+			if err != nil {
+				return err
+			}
+			items, err := approval.NewStore(path).List()
+			if err != nil {
+				return err
+			}
+			now := time.Now()
+			n := 0
+			for _, item := range items {
+				if item.Status == approval.StatusPending && now.Before(item.ExpiresAt) {
+					n++
+					fmt.Fprintf(streams.Stdout, "id=%s tool=%s created=%s\n", item.ApprovalID, item.Tool, item.CreatedAt.Format("15:04:05"))
+				}
+			}
+			if n == 0 {
+				fmt.Fprintln(streams.Stdout, "no pending approvals")
+			}
+			return nil
+		},
+	}
 }
 
 func newBrokerApproveCmd(streams Streams, decision approval.Decision) *cobra.Command {
@@ -1240,6 +1270,22 @@ func cliCapabilitySummary(agent string) string {
 	default:
 		return "未知 Agent：" + agent
 	}
+}
+
+func ensureRemoteAgentCLIAvailable(agent string) error {
+	switch agent {
+	case "claude", "claude_code":
+		if _, err := exec.LookPath("claude"); err != nil {
+			return fmt.Errorf("Claude CLI 未找到，无法启动远程 Claude 任务。请先确认电脑终端可执行 claude --version")
+		}
+	case "codex":
+		if _, err := exec.LookPath("codex"); err != nil {
+			return fmt.Errorf("Codex CLI 未找到，无法启动远程 Codex 任务。请先确认电脑终端可执行 codex --version")
+		}
+	default:
+		return fmt.Errorf("unsupported agent: %s", agent)
+	}
+	return nil
 }
 
 func ensureProfile(cfg *config.Config, name string) config.ProfileConfig {

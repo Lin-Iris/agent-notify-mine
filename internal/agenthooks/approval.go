@@ -86,6 +86,14 @@ func MaybeHandleApproval(ctx context.Context, cfg config.Config, statePath, logP
 		_ = state.AppendLog(logPath, fmt.Sprintf("approval prompt send error id=%s err=%v", req.ApprovalID, err))
 	}
 
+	// 飞书审批卡片已发送，在阻塞等待审批决策之前，
+	// 立即向其他渠道（系统通知/wxpusher等）推送"等待授权"通知。
+	// SkipFeishu 避免重复发送飞书卡片。
+	evt.SkipFeishu = true
+	if dispatchErr := DispatchEvent(ctx, cfg, statePath, logPath, evt); dispatchErr != nil {
+		_ = state.AppendLog(logPath, fmt.Sprintf("dispatch alongside approval: %v", dispatchErr))
+	}
+
 	// 阻塞等待飞书审批决策
 	_ = state.AppendLog(logPath, fmt.Sprintf("approval waiting id=%s", req.ApprovalID))
 	result, err := store.Wait(ctx, req.ApprovalID, ttl)

@@ -297,20 +297,30 @@ func (s *Service) configureRemoteFeishuConversation(ctx context.Context, prompte
 		return &SetupResult{Agent: agent, ConfigPath: path}, nil
 	}
 
-	output.Writef("为这个 Agent 配置远程飞书对话\n")
-	feishuCfg, err := s.prepareFeishuConfig(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if feishuCfg.AppID == "" || feishuCfg.AppSecret == "" || feishuCfg.UserOpenID == "" {
-		return nil, errors.New("飞书扫码绑定没有返回完整配置")
-	}
-
 	next := cfg
 	if next.Profiles == nil {
 		next.Profiles = config.ProfilesConfig{}
 	}
 	profile := next.Profiles[profileName]
+	feishuProfile := profile.Feishu
+	if !feishuProfile.HasCredentials() {
+		output.Writef("为这个 Agent 配置远程飞书对话\n")
+		feishuCfg, err := s.prepareFeishuConfig(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if feishuCfg.AppID == "" || feishuCfg.AppSecret == "" || feishuCfg.UserOpenID == "" {
+			return nil, errors.New("飞书扫码绑定没有返回完整配置")
+		}
+		feishuProfile = config.ProfileFeishuConfig{
+			AppID:       feishuCfg.AppID,
+			AppSecret:   feishuCfg.AppSecret,
+			OwnerOpenID: feishuCfg.UserOpenID,
+			ChatID:      profile.Feishu.ChatID,
+		}
+	} else {
+		output.Writef("使用已有飞书配置继续\n")
+	}
 	profile.Agent = agent
 	profile.Enabled = true
 	if profile.PermissionMode == "" {
@@ -319,12 +329,7 @@ func (s *Service) configureRemoteFeishuConversation(ctx context.Context, prompte
 	if profile.Workspaces == nil {
 		profile.Workspaces = map[string]string{}
 	}
-	profile.Feishu = config.ProfileFeishuConfig{
-		AppID:       feishuCfg.AppID,
-		AppSecret:   feishuCfg.AppSecret,
-		OwnerOpenID: feishuCfg.UserOpenID,
-		ChatID:      profile.Feishu.ChatID,
-	}
+	profile.Feishu = feishuProfile
 	next.Profiles[profileName] = profile
 	next.Broker.ActiveProfile = profileName
 	// Auto-enable feishu notification channel (approval uses same bot)

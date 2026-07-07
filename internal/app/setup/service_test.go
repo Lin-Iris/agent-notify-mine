@@ -348,6 +348,71 @@ func TestService_RemoteFeishuConversationCanSkipBrokerStart(t *testing.T) {
 	}
 }
 
+func TestService_RemoteFeishuConversationKeepExistingFeishuSkipsQR(t *testing.T) {
+	cfg := config.Default()
+	cfg.Profiles = config.ProfilesConfig{
+		"codex-main": {
+			Agent:          "codex",
+			Enabled:        false,
+			Workspace:      "/tmp/project",
+			PermissionMode: "workspace-write",
+			Feishu: config.ProfileFeishuConfig{
+				AppID:       "existing_app",
+				AppSecret:   "existing_secret",
+				OwnerOpenID: "ou_existing",
+				ChatID:      "oc_existing",
+			},
+		},
+	}
+	loader := &mockConfigLoader{
+		defaultPath: "/tmp/injected-config.yaml",
+		loadedCfg:   cfg,
+	}
+	feishu := &mockFeishuPreparer{cfg: FeishuConfig{
+		AppID:      "scan_app",
+		AppSecret:  "scan_secret",
+		UserOpenID: "ou_scan",
+	}}
+	broker := &mockBrokerStarter{}
+	svc := NewService(
+		WithClaudeIntegration(&mockIntegration{name: "Claude Code", detectInstalled: false}),
+		WithCodexIntegration(&mockIntegration{name: "Codex", detectInstalled: true, settingsPath: "/tmp/.codex/config.toml"}),
+		WithFeishuPreparer(feishu),
+		WithBrokerStarter(broker),
+		WithConfigLoader(loader),
+	)
+	prompter := &mockPrompter{
+		selectResults: []string{"codex", setupModeRemote, "keep"},
+		confirmResult: false,
+	}
+
+	if _, err := svc.Run(context.Background(), prompter, &mockOutputWriter{}, "", "/tmp/agent-notify"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if feishu.prepare {
+		t.Fatal("keep existing feishu config should not trigger QR setup")
+	}
+	if !prompter.confirmCalled {
+		t.Fatal("keep existing feishu config should still ask whether to start broker")
+	}
+	profile := loader.savedCfg.Profiles["codex-main"]
+	if !profile.Enabled {
+		t.Fatal("profile should be enabled")
+	}
+	if profile.Feishu.AppID != "existing_app" || profile.Feishu.AppSecret != "existing_secret" || profile.Feishu.OwnerOpenID != "ou_existing" || profile.Feishu.ChatID != "oc_existing" {
+		t.Fatalf("profile feishu = %#v, want existing config", profile.Feishu)
+	}
+	if loader.savedCfg.Broker.ActiveProfile != "codex-main" {
+		t.Fatalf("active profile = %q, want codex-main", loader.savedCfg.Broker.ActiveProfile)
+	}
+	if !loader.savedCfg.Notify.Codex.Channels.Feishu.Enabled {
+		t.Fatal("codex feishu notification channel should be enabled")
+	}
+	if broker.called {
+		t.Fatal("broker should not start when user declines")
+	}
+}
+
 func TestService_RemoteFeishuOptionHiddenForUnsupportedAgent(t *testing.T) {
 	svc := NewService(
 		WithClaudeIntegration(&mockIntegration{name: "Claude Code", detectInstalled: false}),

@@ -3,6 +3,7 @@ package agenthooks
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -32,6 +33,7 @@ func eventToMessage(evt event.Event) notify.Message {
 		Title:      evt.Title,
 		Body:       evt.Body,
 		RawPayload: raw,
+		SkipFeishu: evt.SkipFeishu,
 	}
 }
 
@@ -130,15 +132,16 @@ func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 		senders = append(senders, notify.NewSystemSender(notify.DefaultRunner))
 	}
 	if notifyCfg.Channels.Feishu.Enabled {
-		// 当飞书远程（broker）开启时，抑制所有 hook 通知卡片。
-		// broker 通过任务状态卡片、审批卡片等机制单独推送，
-		// DispatchEvent 再发飞书卡片就是重复的。
-		// 其他渠道（系统通知/微信等）不受影响。
-		if !suppressFeishuHookCard(cfg, msg) {
-			if sender := profileFeishuSender(cfg, msg); sender != nil {
-				senders = append(senders, sender)
-			} else {
-				senders = append(senders, notify.NewDefaultFeishuSender())
+		// 审批/输入流程已单独发送了飞书卡片时，跳过常规飞书通知。
+		if !msg.SkipFeishu {
+			// broker 远程启动的 session 由 broker 单独推送飞书卡片，
+			// 本地 session 不受此影响。
+			if !suppressFeishuHookCard(cfg, msg) {
+				if sender := profileFeishuSender(cfg, msg); sender != nil {
+					senders = append(senders, sender)
+				} else {
+					senders = append(senders, notify.NewDefaultFeishuSender())
+				}
 			}
 		}
 	}
@@ -209,23 +212,21 @@ func notifyConfigForAgent(cfg config.Config, agent string) config.AgentNotifyCon
 	}
 }
 
-// suppressFeishuHookCard 当飞书远程（broker）开启时，抑制所有 hook 通知卡片。
-// broker 通过任务状态卡片（BuildTaskStatusCard）、审批卡片（sendApprovalPrompt）
-// 等机制单独推送，DispatchEvent 的飞书卡片变成重复消息。
-// 抑制范围：所有事件类型（run_completed, permission_required, input_required,
-// run_failed 等）。其他渠道（系统通知/微信等）不受影响。
+// suppressFeishuHookCard 判断飞书 hook 通知是否应被抑制。
+// 只有当 hook 进程是由 broker 远程启动的（AGENT_NOTIFY_REMOTE_PROFILE 环境变量存在），
+// 且对应 profile 有飞书凭证时才抑制。broker 会通过任务状态卡片、审批卡片单独推送。
+// 本地启动的 agent session 不受影响。
 func suppressFeishuHookCard(cfg config.Config, msg notify.Message) bool {
 	if !cfg.Broker.Enabled || !cfg.Broker.LongConnection {
 		return false
 	}
-	profileName := msg.Profile
-	if profileName == "" {
-		profileName = defaultProfileForAgent(msg.Agent)
-	}
-	if profileName != cfg.Broker.ActiveProfile {
+	// 只抑制 broker 远程启动的 session（由环境变量标记），
+	// 本地直接启动的 agent hook 照常发飞书通知。
+	remoteProfile := os.Getenv("AGENT_NOTIFY_REMOTE_PROFILE")
+	if remoteProfile == "" {
 		return false
 	}
-	profile, ok := cfg.Profiles[profileName]
+	profile, ok := cfg.Profiles[remoteProfile]
 	return ok && profile.Enabled && profile.Feishu.HasCredentials()
 }
 

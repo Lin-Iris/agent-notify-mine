@@ -19,6 +19,9 @@ type Message struct {
 	InputOptions     []string
 	InputMultiSelect bool
 	InputAllowOther  bool
+	// SkipFeishu 为 true 时，buildSenders 跳过飞书渠道。
+	// 用于审批/输入流程已单独发送飞书卡片的场景。
+	SkipFeishu bool
 }
 
 type Sender interface {

@@ -45,6 +45,9 @@ type Event struct {
 	Body        string           `json:"body"`         // 预格式化通知正文
 	RawPayload  json.RawMessage  `json:"raw_payload"`  // 原始 hook JSON
 	ReceivedAt  time.Time        `json:"received_at"`
+	// SkipFeishu 为 true 时，DispatchEvent 跳过飞书通知卡片。
+	// 用于审批/输入流程已单独发送飞书卡片的场景，避免重复。
+	SkipFeishu bool `json:"-"`
 }
 
 // Adapter normalizes raw hook JSON from a specific agent into an Event.

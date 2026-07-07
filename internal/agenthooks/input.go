@@ -57,6 +57,13 @@ func MaybeHandleInput(ctx context.Context, cfg config.Config, statePath, logPath
 		_ = state.AppendLog(logPath, fmt.Sprintf("input prompt send error id=%s err=%v", req.InputID, err))
 	}
 
+	// 飞书输入卡片已发送，在阻塞等待回复之前，
+	// 立即向其他渠道推送"等待输入"通知。
+	evt.SkipFeishu = true
+	if dispatchErr := DispatchEvent(ctx, cfg, statePath, logPath, evt); dispatchErr != nil {
+		_ = state.AppendLog(logPath, fmt.Sprintf("dispatch alongside input request: %v", dispatchErr))
+	}
+
 	_ = state.AppendLog(logPath, fmt.Sprintf("input request waiting id=%s", req.InputID))
 	result, err := store.Wait(ctx, req.InputID, ttl)
 	if err != nil {

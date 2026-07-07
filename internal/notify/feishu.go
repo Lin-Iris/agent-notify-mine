@@ -619,6 +619,8 @@ func (s *FeishuSender) buildCard(msg Message) map[string]any {
 				},
 			},
 		)
+	} else if msg.InputRequestID != "" {
+		elements = append(elements, inputRequestElements(msg)...)
 	} else if msg.Event == "permission_required" {
 		elements = append(elements, map[string]any{
 			"tag": "note",
@@ -658,6 +660,95 @@ func (s *FeishuSender) buildCard(msg Message) map[string]any {
 		},
 		"elements": elements,
 	}
+}
+
+func inputRequestElements(msg Message) []any {
+	prompt := strings.TrimSpace(msg.InputPrompt)
+	if prompt == "" {
+		prompt = strings.TrimSpace(msg.Body)
+	}
+	if prompt == "" {
+		prompt = "Claude Code 正在等待你的输入"
+	}
+	elements := []any{
+		map[string]any{
+			"tag": "div",
+			"text": map[string]any{
+				"tag":     "lark_md",
+				"content": fmt.Sprintf("**请输入/选择**\n%s", prompt),
+			},
+		},
+	}
+	if len(msg.InputOptions) > 0 {
+		for _, group := range chunkInputOptions(msg.InputOptions, 2) {
+			actions := make([]any, 0, len(group))
+			for _, option := range group {
+				actions = append(actions, map[string]any{
+					"tag":  "button",
+					"text": map[string]any{"tag": "plain_text", "content": option},
+					"type": "default",
+					"value": map[string]any{
+						"action":   "input_submit",
+						"input_id": msg.InputRequestID,
+						"token":    msg.InputToken,
+						"profile":  msg.Profile,
+						"answer":   option,
+					},
+				})
+			}
+			elements = append(elements, map[string]any{
+				"tag":     "action",
+				"layout":  "bisected",
+				"actions": actions,
+			})
+		}
+	} else {
+		elements = append(elements, map[string]any{
+			"tag": "action",
+			"actions": []any{
+				map[string]any{
+					"tag":  "button",
+					"text": map[string]any{"tag": "plain_text", "content": "等待回复"},
+					"type": "default",
+					"value": map[string]any{
+						"action":   "input_noop",
+						"input_id": msg.InputRequestID,
+						"profile":  msg.Profile,
+					},
+				},
+			},
+		})
+	}
+	note := "直接回复这条飞书消息也可以作为答案。"
+	if msg.InputAllowOther || len(msg.InputOptions) == 0 {
+		note = "如需填写其他答案，请直接回复这条飞书消息。"
+	}
+	if len(msg.InputOptions) > 0 && !msg.InputAllowOther {
+		note = "点击一个选项即可提交。"
+	}
+	elements = append(elements, map[string]any{
+		"tag": "note",
+		"elements": []any{
+			map[string]any{"tag": "plain_text", "content": note},
+		},
+	})
+	return elements
+}
+
+func chunkInputOptions(options []string, size int) [][]string {
+	if size <= 0 {
+		size = 2
+	}
+	var chunks [][]string
+	for len(options) > 0 {
+		n := size
+		if len(options) < n {
+			n = len(options)
+		}
+		chunks = append(chunks, options[:n])
+		options = options[n:]
+	}
+	return chunks
 }
 
 // getHeaderColor returns the header color based on event type

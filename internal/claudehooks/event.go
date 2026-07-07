@@ -46,6 +46,12 @@ func (a Adapter) Parse(data []byte) (event.Event, error) {
 
 	switch p.HookEventName {
 	case "PermissionRequest":
+		if p.ToolName == "AskUserQuestion" {
+			base.Status = event.StatusInputRequired
+			base.Title = notify.FormatTitle("claude_code", "input_required")
+			base.Body = inputQuestionBody(p.ToolInput)
+			return base, nil
+		}
 		base.Status = event.StatusPermissionReq
 		base.Title = notify.FormatTitle("claude_code", "permission_required")
 		base.Body = permissionBody(p.ToolName, p.ToolInput)
@@ -105,6 +111,29 @@ func extractInputHint(msg string) string {
 		return msg[:97] + "..."
 	}
 	return msg
+}
+
+func inputQuestionBody(input map[string]any) string {
+	question := firstQuestionText(input)
+	if question == "" {
+		return "提示: Claude Code 正在等待你的输入"
+	}
+	return fmt.Sprintf("提示: %s", truncateSummary(question, 1200))
+}
+
+func firstQuestionText(input map[string]any) string {
+	questions, ok := input["questions"].([]any)
+	if !ok || len(questions) == 0 {
+		return ""
+	}
+	first, ok := questions[0].(map[string]any)
+	if !ok {
+		return ""
+	}
+	if question, ok := first["question"].(string); ok {
+		return strings.TrimSpace(question)
+	}
+	return ""
 }
 
 func extractErrorMessage(response map[string]any) string {

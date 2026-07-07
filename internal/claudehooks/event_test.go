@@ -41,6 +41,37 @@ func TestParsePermissionRequest(t *testing.T) {
 	}
 }
 
+func TestParseAskUserQuestionPermissionRequestAsInputRequired(t *testing.T) {
+	data := []byte(`{
+		"hook_event_name":"PermissionRequest",
+		"session_id":"s1",
+		"cwd":"/tmp/project",
+		"tool_name":"AskUserQuestion",
+		"tool_input":{
+			"questions":[{
+				"question":"看到这个等待用户选择的弹窗了吗？",
+				"header":"等待输入测试",
+				"multiSelect":false,
+				"options":[
+					{"label":"看到了","description":"弹窗显示了，没问题"},
+					{"label":"没看到","description":"弹窗没出来"}
+				]
+			}]
+		}
+	}`)
+
+	evt, err := testAdapter.Parse(data)
+	if err != nil {
+		t.Fatalf("Adapter.Parse() error = %v", err)
+	}
+	if evt.Status != event.StatusInputRequired {
+		t.Fatalf("Status = %q, want %q", evt.Status, event.StatusInputRequired)
+	}
+	if !strings.Contains(evt.Body, "看到这个等待用户选择的弹窗了吗？") {
+		t.Fatalf("Body = %q, want question text", evt.Body)
+	}
+}
+
 func TestParseNotificationWaitingInput(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "hooks", "notification_waiting_input.json"))
 	if err != nil {

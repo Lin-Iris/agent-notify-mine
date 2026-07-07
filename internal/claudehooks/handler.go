@@ -31,7 +31,13 @@ func Handle(ctx context.Context, cfg config.Config, statePath, logPath string, s
 		return err
 	}
 
-	// 2. Plain notification path for events that remote approval did not own.
+	// 2. Remote input owns Claude input-required notifications when available.
+	handled, err = agenthooks.MaybeHandleInput(ctx, cfg, statePath, logPath, evt, stdout)
+	if handled {
+		return err
+	}
+
+	// 3. Plain notification path for events that remote handlers did not own.
 	if err := agenthooks.DispatchEvent(ctx, cfg, statePath, logPath, evt); err != nil {
 		_ = state.AppendLog(logPath, fmt.Sprintf("dispatch error: %v", err))
 	}

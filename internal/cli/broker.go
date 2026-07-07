@@ -18,6 +18,7 @@ import (
 	"github.com/hellolib/agent-notify/internal/config"
 	"github.com/hellolib/agent-notify/internal/feishubridge"
 	"github.com/hellolib/agent-notify/internal/feishucli"
+	"github.com/hellolib/agent-notify/internal/inputrequest"
 	"github.com/hellolib/agent-notify/internal/notify"
 	"github.com/hellolib/agent-notify/internal/threadstore"
 	"github.com/spf13/cobra"
@@ -140,6 +141,14 @@ func (textApprovalHandler) HandleText(ctx context.Context, profile, chatID, send
 		_ = sendProfileText(ctx, profile, "⛔ 你没有权限操作此 Agent。请检查该 profile 的 feishu.owner_open_id。")
 		return appendAudit("feishu text unauthorized profile=" + profile + " chat=" + chatID + " sender=" + senderID)
 	}
+	if handled, err := handlePendingInputText(profile, senderID, text); handled {
+		if err != nil {
+			replyFeishuError(ctx, profile, err)
+			return err
+		}
+		_ = sendProfileText(ctx, profile, "✅ 已提交答案")
+		return appendAudit("feishu input answered profile=" + profile + " sender=" + senderID)
+	}
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return nil
@@ -216,6 +225,8 @@ func (textApprovalHandler) HandleCardAction(ctx context.Context, botProfile, ope
 	id, _ := value["approval_id"].(string)
 	token, _ := value["token"].(string)
 	profile, _ := value["profile"].(string)
+	inputID, _ := value["input_id"].(string)
+	answer, _ := value["answer"].(string)
 	if profile == "" && botProfile != "" {
 		profile = botProfile
 	}
@@ -249,6 +260,20 @@ func (textApprovalHandler) HandleCardAction(ctx context.Context, botProfile, ope
 	if !authorizedFeishuOperatorForProfile(cfg, profile, operatorID, "") {
 		return appendAudit("feishu card unauthorized profile=" + profile + " operator=" + operatorID)
 	}
+	if action == "input_submit" {
+		if inputID == "" {
+			return appendAudit("feishu card action missing input_id operator=" + operatorID)
+		}
+		path, err := config.InputRequestsPath()
+		if err != nil {
+			return err
+		}
+		answers, other := inputSubmitAnswers(value, answer)
+		if _, err := inputrequest.NewStore(path).AnswerValues(inputID, token, operatorID, answers, other); err != nil {
+			return err
+		}
+		return appendAudit(fmt.Sprintf("feishu card input answered id=%s operator=%s", inputID, operatorID))
+	}
 	var decision approval.Decision
 	switch action {
 	case "approve":
@@ -275,6 +300,87 @@ func (textApprovalHandler) HandleCardAction(ctx context.Context, botProfile, ope
 		return err
 	}
 	return appendAudit(fmt.Sprintf("feishu card approval %s id=%s operator=%s", decision, id, operatorID))
+}
+
+func handlePendingInputText(profile, operatorID, answer string) (bool, error) {
+	path, err := config.InputRequestsPath()
+	if err != nil {
+		return false, err
+	}
+	store := inputrequest.NewStore(path)
+	req, ok, err := store.PendingForProfile(profile)
+	if err != nil || !ok {
+		return ok, err
+	}
+	_, err = store.Answer(req.InputID, "", operatorID, answer)
+	if err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+func inputSubmitAnswers(value map[string]any, fallback string) ([]string, string) {
+	form, _ := value["_form_value"].(map[string]any)
+	var answers []string
+	var other string
+	if form != nil {
+		answers = stringValues(form["answer"])
+		other = firstString(form["other"])
+	}
+	if len(answers) == 0 {
+		answers = stringValues(value["_options"])
+	}
+	if len(answers) == 0 {
+		answers = stringValues(value["_option"])
+	}
+	if len(answers) == 0 && fallback != "" {
+		answers = []string{fallback}
+	}
+	if other == "" {
+		other = firstString(value["_input_value"])
+	}
+	return answers, other
+}
+
+func stringValues(raw any) []string {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		return []string{v}
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if text := firstString(item); text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		text := strings.TrimSpace(fmt.Sprint(v))
+		if text == "" {
+			return nil
+		}
+		return []string{text}
+	}
+}
+
+func firstString(raw any) string {
+	switch v := raw.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(v)
+	case fmt.Stringer:
+		return strings.TrimSpace(v.String())
+	default:
+		return strings.TrimSpace(fmt.Sprint(v))
+	}
 }
 
 func newBrokerStartCmd(streams Streams) *cobra.Command {

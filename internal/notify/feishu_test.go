@@ -357,6 +357,70 @@ func TestBuildPlainPermissionCardHasNoApprovalButtons(t *testing.T) {
 	}
 }
 
+func TestBuildPlainInputCardHasNoApprovalButtons(t *testing.T) {
+	sender := &FeishuSender{}
+	card := sender.buildCard(Message{
+		Event: "input_required",
+		Title: "Claude Code 等待输入",
+		Body:  "提示: Claude is waiting for your input",
+		Agent: "claude_code",
+	})
+
+	allText := cardAllText(card)
+	if contains(allText, "批准") || contains(allText, "拒绝") {
+		t.Fatalf("plain input card should not show approval buttons, got %q", allText)
+	}
+}
+
+func TestBuildInputRequestCardIncludesOptions(t *testing.T) {
+	sender := &FeishuSender{}
+	card := sender.buildCard(Message{
+		Event:           "input_required",
+		Title:           "Claude Code 等待输入",
+		Body:            "提示: 能看到这个弹窗吗？",
+		Profile:         "claude-main",
+		InputRequestID:  "in_123",
+		InputToken:      "token",
+		InputPrompt:     "能看到这个弹窗吗？",
+		InputOptions:    []string{"看到了", "没看到", "Other"},
+		InputAllowOther: true,
+	})
+
+	allText := cardAllText(card)
+	for _, want := range []string{"看到了", "没看到", "Other"} {
+		if !contains(allText, want) {
+			t.Fatalf("input card should include option %q, got %q", want, allText)
+		}
+	}
+	if !cardValueContains(card, "action", "input_submit") {
+		t.Fatalf("input card should include input_submit action: %#v", card)
+	}
+	if !cardValueContains(card, "input_id", "in_123") {
+		t.Fatalf("input card should include input_id: %#v", card)
+	}
+	if countCardActions(card, "input_submit") != 3 {
+		t.Fatalf("input card should include one submit action per option in this fixture: %#v", card)
+	}
+}
+
+func TestBuildInputRequestCardUsesButtonsForMultiSelectFallback(t *testing.T) {
+	sender := &FeishuSender{}
+	card := sender.buildCard(Message{
+		Event:            "input_required",
+		Title:            "Claude Code 等待输入",
+		Profile:          "claude-main",
+		InputRequestID:   "in_123",
+		InputToken:       "token",
+		InputPrompt:      "选择多个",
+		InputOptions:     []string{"A", "B"},
+		InputMultiSelect: true,
+	})
+
+	if countCardActions(card, "input_submit") != 2 {
+		t.Fatalf("input card should include one submit action per option: %#v", card)
+	}
+}
+
 func TestBuildApprovalCardIncludesProfileInButtonValues(t *testing.T) {
 	sender := &FeishuSender{}
 	card := sender.buildCard(Message{
@@ -394,6 +458,49 @@ func cardAllText(value any) string {
 		return v + "\n"
 	default:
 		return ""
+	}
+}
+
+func cardHasTag(value any, tag string) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		if v["tag"] == tag {
+			return true
+		}
+		for _, item := range v {
+			if cardHasTag(item, tag) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if cardHasTag(item, tag) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func countCardActions(value any, action string) int {
+	switch v := value.(type) {
+	case map[string]any:
+		count := 0
+		if value, ok := v["value"].(map[string]any); ok && value["action"] == action {
+			count++
+		}
+		for _, item := range v {
+			count += countCardActions(item, action)
+		}
+		return count
+	case []any:
+		count := 0
+		for _, item := range v {
+			count += countCardActions(item, action)
+		}
+		return count
+	default:
+		return 0
 	}
 }
 

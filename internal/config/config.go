@@ -321,6 +321,14 @@ func ApprovalPath() (string, error) {
 	return filepath.Join(dir, "approvals.json"), nil
 }
 
+func InputRequestsPath() (string, error) {
+	dir, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "input_requests.json"), nil
+}
+
 func ProcessRegistryPath() (string, error) {
 	dir, err := HomeDir()
 	if err != nil {

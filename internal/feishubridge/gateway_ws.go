@@ -47,7 +47,23 @@ func (g *Gateway) Start(ctx context.Context, cfg config.Config) error {
 		if event.Event.Operator != nil {
 			operator = event.Event.Operator.OpenID
 		}
-		if err := cardHandler.HandleCardAction(ctx, g.profile, operator, event.Event.Action.Value); err != nil {
+		value := event.Event.Action.Value
+		if value == nil {
+			value = map[string]any{}
+		}
+		if event.Event.Action.FormValue != nil {
+			value["_form_value"] = event.Event.Action.FormValue
+		}
+		if event.Event.Action.InputValue != "" {
+			value["_input_value"] = event.Event.Action.InputValue
+		}
+		if len(event.Event.Action.Options) > 0 {
+			value["_options"] = event.Event.Action.Options
+		}
+		if event.Event.Action.Option != "" {
+			value["_option"] = event.Event.Action.Option
+		}
+		if err := cardHandler.HandleCardAction(ctx, g.profile, operator, value); err != nil {
 			return &callback.CardActionTriggerResponse{Toast: &callback.Toast{Type: "error", Content: err.Error()}}, nil
 		}
 		return &callback.CardActionTriggerResponse{Toast: &callback.Toast{Type: "success", Content: "已处理"}}, nil

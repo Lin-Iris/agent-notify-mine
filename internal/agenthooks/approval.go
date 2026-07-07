@@ -42,7 +42,7 @@ var sendApprovalPromptForHook = sendApprovalPrompt
 // 注意：Claude Code 可能有自身的 hook 超时，如果审批太慢，
 // hook 进程可能被 Claude Code 杀掉，导致远程审批失效。
 func MaybeHandleApproval(ctx context.Context, cfg config.Config, statePath, logPath string, evt event.Event, stdout io.Writer) (bool, error) {
-	if evt.HookEvent != "PermissionRequest" {
+	if evt.HookEvent != "PermissionRequest" || evt.Status != event.StatusPermissionReq {
 		return false, nil
 	}
 
@@ -147,6 +147,20 @@ func writeHookDecision(stdout io.Writer, eventName, behavior, reason string) err
 		// stdout 写入失败说明 Claude Code 已经关了管道（hook 超时），
 		// 这就是对话框不消失的根本原因。
 		fmt.Fprintf(os.Stderr, "FATAL: writeHookDecision encode error: %v\n", err)
+		return err
+	}
+	return nil
+}
+
+func writeHookAdditionalContext(stdout io.Writer, eventName, contextText string) error {
+	if stdout == nil {
+		return nil
+	}
+	var out hookDecisionOutput
+	out.HookSpecificOutput.HookEventName = eventName
+	out.HookSpecificOutput.AdditionalContext = contextText
+	if err := json.NewEncoder(stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: writeHookAdditionalContext encode error: %v\n", err)
 		return err
 	}
 	return nil

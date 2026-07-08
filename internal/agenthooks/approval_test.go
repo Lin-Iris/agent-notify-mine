@@ -17,18 +17,46 @@ func TestMaybeHandleApprovalSkipsPlainNotificationHooks(t *testing.T) {
 	cfg := config.Default()
 	cfg.Approval.Enabled = true
 	cfg.Broker.Enabled = true
-
-	handled, err := MaybeHandleApproval(context.Background(), cfg, t.TempDir()+"/state.json", t.TempDir()+"/log.txt", event.Event{
-		Agent:     "codex",
-		HookEvent: "PermissionRequest",
-		Status:    event.StatusPermissionReq,
-		SessionID: "s1",
-	}, &bytes.Buffer{})
-	if err != nil {
-		t.Fatalf("MaybeHandleApproval() error = %v", err)
+	cfg.Profiles["claude-main"] = config.ProfileConfig{
+		Agent:   "claude",
+		Enabled: true,
+		Feishu: config.ProfileFeishuConfig{
+			AppID:       "cli_a",
+			AppSecret:   "secret",
+			OwnerOpenID: "ou_owner",
+		},
 	}
-	if handled {
-		t.Fatal("plain notification hook should not enter remote approval flow")
+	cfg.Profiles["codex-main"] = config.ProfileConfig{
+		Agent:   "codex",
+		Enabled: true,
+		Feishu: config.ProfileFeishuConfig{
+			AppID:       "cli_a",
+			AppSecret:   "secret",
+			OwnerOpenID: "ou_owner",
+		},
+	}
+
+	for _, tc := range []struct {
+		name  string
+		agent string
+	}{
+		{name: "codex", agent: "codex"},
+		{name: "claude", agent: "claude_code"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handled, err := MaybeHandleApproval(context.Background(), cfg, t.TempDir()+"/state.json", t.TempDir()+"/log.txt", event.Event{
+				Agent:     tc.agent,
+				HookEvent: "PermissionRequest",
+				Status:    event.StatusPermissionReq,
+				SessionID: "s1",
+			}, &bytes.Buffer{})
+			if err != nil {
+				t.Fatalf("MaybeHandleApproval() error = %v", err)
+			}
+			if handled {
+				t.Fatal("plain notification hook should not enter remote approval flow")
+			}
+		})
 	}
 }
 
@@ -72,6 +100,36 @@ func TestMaybeHandleApprovalWritesAllowAfterRemoteApproval(t *testing.T) {
 	}
 	if !handled {
 		t.Fatal("remote approval should be handled")
+	}
+	got := decodeHookDecision(t, stdout.Bytes())
+	if got.HookSpecificOutput.Decision == nil || got.HookSpecificOutput.Decision.Behavior != hookPermissionBehaviorAllow {
+		t.Fatalf("Decision = %#v, want behavior %q", got.HookSpecificOutput.Decision, hookPermissionBehaviorAllow)
+	}
+}
+
+func TestMaybeHandleApprovalWritesAllowForRemoteCodexApproval(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AGENT_NOTIFY_REMOTE_PROFILE", "codex-main")
+	cfg := remoteApprovalTestConfig()
+
+	withApprovalPrompt(t, func(ctx context.Context, cfg config.Config, logPath string, evt event.Event, req approval.Request, profileName string, profile config.ProfileConfig) error {
+		if profileName != "codex-main" {
+			t.Fatalf("profileName = %q, want codex-main", profileName)
+		}
+		if profile.Agent != "codex" {
+			t.Fatalf("profile.Agent = %q, want codex", profile.Agent)
+		}
+		decideApproval(t, req, approval.DecisionApprove)
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	handled, err := MaybeHandleApproval(context.Background(), cfg, t.TempDir()+"/state.json", t.TempDir()+"/log.txt", testCodexPermissionEvent(), &stdout)
+	if err != nil {
+		t.Fatalf("MaybeHandleApproval() error = %v", err)
+	}
+	if !handled {
+		t.Fatal("remote codex approval should be handled")
 	}
 	got := decodeHookDecision(t, stdout.Bytes())
 	if got.HookSpecificOutput.Decision == nil || got.HookSpecificOutput.Decision.Behavior != hookPermissionBehaviorAllow {
@@ -140,6 +198,15 @@ func remoteApprovalTestConfig() config.Config {
 			OwnerOpenID: "ou_owner",
 		},
 	}
+	cfg.Profiles["codex-main"] = config.ProfileConfig{
+		Agent:   "codex",
+		Enabled: true,
+		Feishu: config.ProfileFeishuConfig{
+			AppID:       "cli_a",
+			AppSecret:   "secret",
+			OwnerOpenID: "ou_owner",
+		},
+	}
 	return cfg
 }
 
@@ -182,6 +249,24 @@ func testPermissionEvent() event.Event {
 	})
 	return event.Event{
 		Agent:      "claude_code",
+		HookEvent:  "PermissionRequest",
+		Status:     event.StatusPermissionReq,
+		SessionID:  "s1",
+		Workspace:  "/tmp/project",
+		RawPayload: raw,
+	}
+}
+
+func testCodexPermissionEvent() event.Event {
+	raw, _ := json.Marshal(map[string]any{
+		"hook_event_name": "PermissionRequest",
+		"tool_name":       "Bash",
+		"tool_input": map[string]any{
+			"command": "git status",
+		},
+	})
+	return event.Event{
+		Agent:      "codex",
 		HookEvent:  "PermissionRequest",
 		Status:     event.StatusPermissionReq,
 		SessionID:  "s1",

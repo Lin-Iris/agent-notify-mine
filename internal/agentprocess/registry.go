@@ -35,6 +35,7 @@ type Record struct {
 type StartOptions struct {
 	Profile         string
 	Agent           string
+	CLIPath         string
 	Workspace       string
 	PermissionMode  string
 	Prompt          string
@@ -105,7 +106,7 @@ func (r *Registry) StartWithOptions(ctx context.Context, opts StartOptions) (Rec
 		return Record{}, err
 	}
 
-	args, err := commandArgsWithSession(agent, workspace, permissionMode, prompt, opts.NativeSessionID, opts.Resume)
+	args, err := commandArgsWithSession(agent, opts.CLIPath, workspace, permissionMode, prompt, opts.NativeSessionID, opts.Resume)
 	if err != nil {
 		_ = logFile.Close()
 		return Record{}, err
@@ -335,18 +336,22 @@ func (r *Registry) save(data fileData) error {
 	return os.Rename(tmp, r.path)
 }
 
-func commandArgs(agent, workspace, permissionMode, prompt string) ([]string, error) {
-	return commandArgsWithSession(agent, workspace, permissionMode, prompt, "", false)
+func commandArgs(agent, cliPath, workspace, permissionMode, prompt string) ([]string, error) {
+	return commandArgsWithSession(agent, cliPath, workspace, permissionMode, prompt, "", false)
 }
 
-func commandArgsWithSession(agent, workspace, permissionMode, prompt, sessionID string, resume bool) ([]string, error) {
+func commandArgsWithSession(agent, cliPath, workspace, permissionMode, prompt, sessionID string, resume bool) ([]string, error) {
+	cli := cliPath
+	if cli == "" {
+		cli = agent
+	}
 	switch agent {
 	case "claude", "claude_code":
 		mode := "acceptEdits"
 		if permissionMode == "read-only" {
 			mode = "plan"
 		}
-		args := []string{"claude", "--print", "--verbose", "--output-format", "stream-json", "--include-partial-messages", "--permission-mode", mode, "--add-dir", workspace}
+		args := []string{cli, "--print", "--verbose", "--output-format", "stream-json", "--include-partial-messages", "--permission-mode", mode, "--add-dir", workspace}
 		if resume && sessionID != "" {
 			args = append(args, "--resume", sessionID)
 		} else if sessionID != "" {
@@ -363,9 +368,9 @@ func commandArgsWithSession(agent, workspace, permissionMode, prompt, sessionID 
 			sandbox = "workspace-write"
 		}
 		if resume && sessionID != "" {
-			return []string{"codex", "--ask-for-approval", "on-request", "exec", "--json", "--sandbox", sandbox, "--cd", workspace, "--skip-git-repo-check", "resume", sessionID, prompt}, nil
+			return []string{cli, "--ask-for-approval", "on-request", "exec", "--json", "--sandbox", sandbox, "--cd", workspace, "--skip-git-repo-check", "resume", sessionID, prompt}, nil
 		}
-		return []string{"codex", "--ask-for-approval", "on-request", "exec", "--json", "--sandbox", sandbox, "--cd", workspace, "--skip-git-repo-check", prompt}, nil
+		return []string{cli, "--ask-for-approval", "on-request", "exec", "--json", "--sandbox", sandbox, "--cd", workspace, "--skip-git-repo-check", prompt}, nil
 	default:
 		return nil, fmt.Errorf("unsupported agent: %s", agent)
 	}

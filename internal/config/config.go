@@ -135,6 +135,7 @@ type ProfileConfig struct {
 	Workspace      string              `yaml:"workspace"`
 	Enabled        bool                `yaml:"enabled"`
 	PermissionMode string              `yaml:"permission_mode"`
+	CLIPath        string              `yaml:"cli_path,omitempty"`
 	Feishu         ProfileFeishuConfig `yaml:"feishu,omitempty"`
 	FeishuChatID   string              `yaml:"feishu_chat_id,omitempty"`
 	Workspaces     map[string]string   `yaml:"workspaces,omitempty"`

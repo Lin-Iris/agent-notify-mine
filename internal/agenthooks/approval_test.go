@@ -12,11 +12,17 @@ import (
 	"github.com/hellolib/agent-notify/internal/event"
 )
 
-func TestMaybeHandleApprovalSkipsPlainNotificationHooks(t *testing.T) {
+func TestMaybeHandleApprovalFallsBackToDefaultProfileWhenEnvVarEmpty(t *testing.T) {
+	// When AGENT_NOTIFY_REMOTE_PROFILE is not set but broker is enabled
+	// and a default profile has Feishu credentials, locally-started
+	// sessions should still enter the remote approval flow so users
+	// can approve from mobile.
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("AGENT_NOTIFY_REMOTE_PROFILE", "")
 	cfg := config.Default()
-	cfg.Approval.Enabled = true
 	cfg.Broker.Enabled = true
+	cfg.Approval.Enabled = true
+	cfg.Approval.TimeoutSeconds = 1
 	cfg.Profiles["claude-main"] = config.ProfileConfig{
 		Agent:   "claude",
 		Enabled: true,
@@ -44,19 +50,55 @@ func TestMaybeHandleApprovalSkipsPlainNotificationHooks(t *testing.T) {
 		{name: "claude", agent: "claude_code"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			handled, err := MaybeHandleApproval(context.Background(), cfg, t.TempDir()+"/state.json", t.TempDir()+"/log.txt", event.Event{
+			withApprovalPrompt(t, func(ctx context.Context, cfg config.Config, logPath string, evt event.Event, req approval.Request, profileName string, profile config.ProfileConfig) error {
+				return nil
+			})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			var stdout bytes.Buffer
+			handled, err := MaybeHandleApproval(ctx, cfg, t.TempDir()+"/state.json", t.TempDir()+"/log.txt", event.Event{
 				Agent:     tc.agent,
 				HookEvent: "PermissionRequest",
 				Status:    event.StatusPermissionReq,
 				SessionID: "s1",
-			}, &bytes.Buffer{})
+			}, &stdout)
 			if err != nil {
 				t.Fatalf("MaybeHandleApproval() error = %v", err)
 			}
-			if handled {
-				t.Fatal("plain notification hook should not enter remote approval flow")
+			if !handled {
+				t.Fatal("should enter remote approval flow via default profile fallback")
 			}
 		})
+	}
+}
+
+func TestMaybeHandleApprovalSkipsWhenBrokerDisabledAndEnvVarEmpty(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_REMOTE_PROFILE", "")
+	cfg := config.Default()
+	cfg.Approval.Enabled = true
+	cfg.Broker.Enabled = false // broker not running
+	cfg.Profiles["claude-main"] = config.ProfileConfig{
+		Agent:   "claude",
+		Enabled: true,
+		Feishu: config.ProfileFeishuConfig{
+			AppID:       "cli_a",
+			AppSecret:   "secret",
+			OwnerOpenID: "ou_owner",
+		},
+	}
+
+	handled, err := MaybeHandleApproval(context.Background(), cfg, t.TempDir()+"/state.json", t.TempDir()+"/log.txt", event.Event{
+		Agent:     "claude_code",
+		HookEvent: "PermissionRequest",
+		Status:    event.StatusPermissionReq,
+		SessionID: "s1",
+	}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("MaybeHandleApproval() error = %v", err)
+	}
+	if handled {
+		t.Fatal("should skip remote approval when broker is disabled")
 	}
 }
 

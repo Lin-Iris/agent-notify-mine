@@ -46,12 +46,19 @@ func MaybeHandleApproval(ctx context.Context, cfg config.Config, statePath, logP
 		return false, nil
 	}
 
-	// Remote approval only owns hooks from broker-started agent processes.
-	// Plain local Codex/Claude hooks must continue through DispatchEvent as
-	// normal notifications, even when a default profile has Feishu credentials.
 	profileName := os.Getenv("AGENT_NOTIFY_REMOTE_PROFILE")
 	if profileName == "" {
-		return false, nil
+		// Broker-started processes carry AGENT_NOTIFY_REMOTE_PROFILE.
+		// When absent (locally-started session), fall back to the default
+		// profile for the agent type so users can still approve from mobile
+		// as long as broker is online.
+		if !cfg.Broker.Enabled || !cfg.Approval.Enabled {
+			return false, state.AppendLog(logPath, "remote approval skipped: broker or approval disabled")
+		}
+		profileName = defaultProfileForAgent(evt.Agent)
+		if profileName == "" {
+			return false, state.AppendLog(logPath, fmt.Sprintf("approval skipped: no default profile for agent %s", evt.Agent))
+		}
 	}
 
 	if !cfg.Broker.Enabled || !cfg.Approval.Enabled {

@@ -466,7 +466,7 @@ func newBrokerStatusCmd(streams Streams) *cobra.Command {
 			procs, _ := listProcesses(profile)
 			brokerPID, brokerRunning := brokerDaemonStatus()
 			fmt.Fprintf(streams.Stdout, "broker=%v approval=%v listener=%v pid=%d profile=%s profile_enabled=%v agent=%s workspace=%s permission=%s pending=%d processes=%d cli=%s\n",
-				cfg.Broker.Enabled, cfg.Approval.Enabled, brokerRunning, brokerPID, profile, p.Enabled, p.Agent, p.Workspace, p.PermissionMode, pending, runningProcessCount(procs), cliCapabilitySummary(p.Agent))
+				cfg.Broker.Enabled, cfg.Approval.Enabled, brokerRunning, brokerPID, profile, p.Enabled, p.Agent, p.Workspace, p.PermissionMode, pending, runningProcessCount(procs), cliCapabilitySummary(p))
 			return nil
 		},
 	}
@@ -770,6 +770,19 @@ func newBrokerCommandCmd(streams Streams) *cobra.Command {
 					return err
 				}
 				fmt.Fprintf(streams.Stdout, "kill requested: %s\n", fields[1])
+			case "/new", "/connect":
+				cfg.Broker.Enabled = true
+				cfg.Broker.LongConnection = true
+				cfg.Approval.Enabled = true
+				p.Enabled = true
+				if cliPath, err := resolveAgentCLIPath(p.Agent); err == nil {
+					p.CLIPath = cliPath
+				}
+				cfg.Profiles[profile] = p
+				if err := config.Save(path, cfg); err != nil {
+					return err
+				}
+				fmt.Fprintf(streams.Stdout, "profile connected: %s\n", profile)
 			case "/disconnect":
 				p.Enabled = false
 				cfg.Profiles[profile] = p
@@ -889,6 +902,9 @@ func runBrokerSlashCommand(streams Streams, profile, text string) error {
 		cfg.Broker.LongConnection = true
 		cfg.Approval.Enabled = true
 		p.Enabled = true
+		if cliPath, err := resolveAgentCLIPath(p.Agent); err == nil {
+			p.CLIPath = cliPath
+		}
 		cfg.Profiles[profile] = p
 		if err := config.Save(path, cfg); err != nil {
 			return err
@@ -1131,7 +1147,7 @@ func sendBrokerControlCard(ctx context.Context, profile string) error {
 		Pending:        pending,
 		Processes:      runningCount,
 		ActiveThread:   activeThread,
-		CLIDiagnostics: cliCapabilitySummary(p.Agent),
+		CLIDiagnostics: cliCapabilitySummary(p),
 	}))
 	return err
 }
@@ -1359,17 +1375,33 @@ func intFromValue(value any, fallback int) int {
 	return fallback
 }
 
-func cliCapabilitySummary(agent string) string {
+func resolveAgentCLIPath(agent string) (string, error) {
 	switch agent {
 	case "claude", "claude_code":
-		path, err := exec.LookPath("claude")
-		if err != nil {
+		return exec.LookPath("claude")
+	case "codex":
+		return exec.LookPath("codex")
+	default:
+		return "", fmt.Errorf("unsupported agent: %s", agent)
+	}
+}
+
+func cliCapabilitySummary(p config.ProfileConfig) string {
+	agent := p.Agent
+	path := p.CLIPath
+	if path == "" {
+		if resolved, err := resolveAgentCLIPath(agent); err == nil {
+			path = resolved
+		}
+	}
+	switch agent {
+	case "claude", "claude_code":
+		if path == "" {
 			return "Claude CLI 未找到，无法远程执行 Claude Code 任务"
 		}
 		return "Claude CLI 可用：" + path + "；支持 resume/session-id/stream-json"
 	case "codex":
-		path, err := exec.LookPath("codex")
-		if err != nil {
+		if path == "" {
 			return "Codex CLI 未找到；仅安装不可调用 CLI 的 GUI 不足以执行任务"
 		}
 		return "Codex CLI 可用：" + path + "；支持 exec resume/json"
@@ -1378,19 +1410,24 @@ func cliCapabilitySummary(agent string) string {
 	}
 }
 
-func ensureRemoteAgentCLIAvailable(agent string) error {
-	switch agent {
-	case "claude", "claude_code":
-		if _, err := exec.LookPath("claude"); err != nil {
-			return fmt.Errorf("Claude CLI 未找到，无法启动远程 Claude 任务。请先确认电脑终端可执行 claude --version")
+func ensureRemoteAgentCLIAvailable(p config.ProfileConfig) error {
+	if p.CLIPath != "" {
+		if _, err := os.Stat(p.CLIPath); err == nil {
+			return nil
 		}
-	case "codex":
-		if _, err := exec.LookPath("codex"); err != nil {
-			return fmt.Errorf("Codex CLI 未找到，无法启动远程 Codex 任务。请先确认电脑终端可执行 codex --version")
-		}
-	default:
-		return fmt.Errorf("unsupported agent: %s", agent)
 	}
+	path, err := resolveAgentCLIPath(p.Agent)
+	if err != nil {
+		switch p.Agent {
+		case "claude", "claude_code":
+			return fmt.Errorf("Claude CLI 未找到，无法启动远程 Claude 任务。请先确认电脑终端可执行 claude --version")
+		case "codex":
+			return fmt.Errorf("Codex CLI 未找到，无法启动远程 Codex 任务。请先确认电脑终端可执行 codex --version")
+		default:
+			return fmt.Errorf("unsupported agent: %s", p.Agent)
+		}
+	}
+	_ = path
 	return nil
 }
 

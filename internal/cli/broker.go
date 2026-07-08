@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,6 +24,48 @@ import (
 	"github.com/hellolib/agent-notify/internal/threadstore"
 	"github.com/spf13/cobra"
 )
+
+// --- 消息去重（防止飞书 WebSocket 重传导致重复处理）---
+
+var (
+	recentMessages   = map[string]time.Time{}
+	recentMessagesMu sync.Mutex
+)
+
+func isDuplicateMessage(key string) bool {
+	recentMessagesMu.Lock()
+	defer recentMessagesMu.Unlock()
+	now := time.Now()
+	for k, t := range recentMessages {
+		if now.Sub(t) > 30*time.Second {
+			delete(recentMessages, k)
+		}
+	}
+	if _, ok := recentMessages[key]; ok {
+		return true
+	}
+	recentMessages[key] = now
+	return false
+}
+
+// --- profile 级别锁（防止竞态：检查进程 → 启动任务窗口期）---
+
+var (
+	profileLocks   = map[string]*sync.Mutex{}
+	profileLocksMu sync.Mutex
+)
+
+func lockProfile(profile string) func() {
+	profileLocksMu.Lock()
+	mu, ok := profileLocks[profile]
+	if !ok {
+		mu = &sync.Mutex{}
+		profileLocks[profile] = mu
+	}
+	profileLocksMu.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
 
 func newBrokerCmd(ctx context.Context, streams Streams) *cobra.Command {
 	cmd := &cobra.Command{
@@ -121,6 +164,13 @@ func sendProfileText(ctx context.Context, profile, text string) error {
 
 func (textApprovalHandler) HandleText(ctx context.Context, profile, chatID, senderID, text string) error {
 	text = strings.TrimSpace(text)
+
+	// 消息去重：同一 profile+chat+sender+text 30 秒内不重复处理
+	dedupKey := fmt.Sprintf("%s|%s|%s|%s", profile, chatID, senderID, text)
+	if isDuplicateMessage(dedupKey) {
+		return appendAudit("feishu text dedup skipped profile=" + profile + " chat=" + chatID + " sender=" + senderID)
+	}
+
 	cfg, _, err := loadDefaultConfig()
 	if err != nil {
 		replyFeishuError(ctx, profile, err)
@@ -198,6 +248,10 @@ func (textApprovalHandler) HandleText(ctx context.Context, profile, chatID, send
 		}
 		return appendAudit("feishu command chat=" + chatID + " sender=" + senderID + " output=" + strings.TrimSpace(out.String()))
 	}
+	// 获取 profile 锁，防止竞态：reg.List 检查 → reg.Save 注册的窗口期
+	unlock := lockProfile(profile)
+	defer unlock()
+
 	reg, _, regErr := processRegistry()
 	if regErr == nil {
 		running, _ := reg.List(profile)

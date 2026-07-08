@@ -20,8 +20,28 @@ import (
 )
 
 const threadPageSize = 5
-const taskCardUpdateInterval = 2 * time.Second
-const taskCardUpdateMinChars = 300
+
+const maxTaskCardFallbacks = 3
+
+// --- 卡片回退限制（防止更新失败时无限创建新卡片）---
+
+var (
+	taskCardFallbackCounts   = map[string]int{}
+	taskCardFallbackCountsMu sync.Mutex
+)
+
+func incrTaskCardFallbackCount(taskID string) int {
+	taskCardFallbackCountsMu.Lock()
+	defer taskCardFallbackCountsMu.Unlock()
+	taskCardFallbackCounts[taskID]++
+	return taskCardFallbackCounts[taskID]
+}
+
+func resetTaskCardFallbackCount(taskID string) {
+	taskCardFallbackCountsMu.Lock()
+	defer taskCardFallbackCountsMu.Unlock()
+	delete(taskCardFallbackCounts, taskID)
+}
 
 func newThreadCmd(streams Streams) *cobra.Command {
 	cmd := &cobra.Command{Use: "thread", Short: "Manage broker conversation threads"}
@@ -412,6 +432,7 @@ func startThreadTask(ctx context.Context, profile, prompt string) (agentprocess.
 	} else {
 		_ = appendAudit(fmt.Sprintf("feishu initial task card skipped task=%s err=%v", task.ID, err))
 	}
+
 	if workspaceErr := validateTaskWorkspace(p.Workspace); workspaceErr != nil {
 		task.Status = threadstore.TaskStatusFailed
 		task.Error = workspaceErr.Error()
@@ -422,8 +443,6 @@ func startThreadTask(ctx context.Context, profile, prompt string) (agentprocess.
 		return agentprocess.Record{}, thread, task, workspaceErr
 	}
 	var taskMu sync.Mutex
-	lastCardUpdate := time.Now()
-	charsSinceUpdate := 0
 	rec, err := reg.StartWithOptions(ctx, agentprocess.StartOptions{
 		Profile:         profile,
 		Agent:           p.Agent,
@@ -436,41 +455,31 @@ func startThreadTask(ctx context.Context, profile, prompt string) (agentprocess.
 		TaskID:          task.ID,
 		NativeSessionID: thread.NativeSessionID,
 		Resume:          thread.NativeResume,
-		OnOutput: func(line string) {
-			fragment := parseModelStreamLine(line)
-			if fragment.Output == "" && fragment.Reasoning == "" {
-				return
-			}
-			taskMu.Lock()
-			if latest, err := store.GetTask(task.ID); err == nil && latest.Status == threadstore.TaskStatusStopped {
-				taskMu.Unlock()
-				return
-			}
-			if fragment.Output != "" {
-				task.StreamOutput += fragment.Output
-				charsSinceUpdate += len(fragment.Output)
-			}
-			if fragment.Reasoning != "" {
-				if task.ReasoningTrace != "" {
-					task.ReasoningTrace += "\n"
+			OnOutput: func(line string) {
+				fragment := parseModelStreamLine(line)
+				if fragment.Output == "" && fragment.Reasoning == "" {
+					return
 				}
-				task.ReasoningTrace += fragment.Reasoning
-				charsSinceUpdate += len(fragment.Reasoning)
-			}
-			task.Progress = streamProgress(task.StreamOutput)
-			snapshot := task
-			shouldUpdateCard := time.Since(lastCardUpdate) >= taskCardUpdateInterval || charsSinceUpdate >= taskCardUpdateMinChars
-			if shouldUpdateCard {
-				lastCardUpdate = time.Now()
-				charsSinceUpdate = 0
-			}
-			taskMu.Unlock()
-			_ = os.WriteFile(outputPath, []byte(modelOutputText(snapshot)), 0o600)
-			_ = store.UpdateTask(snapshot)
-			if shouldUpdateCard {
-				ensureTaskStatusCard(context.Background(), store, snapshot, "stream")
-			}
-		},
+				taskMu.Lock()
+				if latest, err := store.GetTask(task.ID); err == nil && latest.Status == threadstore.TaskStatusStopped {
+					taskMu.Unlock()
+					return
+				}
+				if fragment.Output != "" {
+					task.StreamOutput += fragment.Output
+				}
+				if fragment.Reasoning != "" {
+					if task.ReasoningTrace != "" {
+						task.ReasoningTrace += "\n"
+					}
+					task.ReasoningTrace += fragment.Reasoning
+				}
+				task.Progress = streamProgress(task.StreamOutput)
+				snapshot := task
+				taskMu.Unlock()
+				_ = os.WriteFile(outputPath, []byte(modelOutputText(snapshot)), 0o600)
+				_ = store.UpdateTask(snapshot)
+			},
 		OnExit: func(rec agentprocess.Record, output string, exitCode int, runErr error) {
 			taskMu.Lock()
 			if latest, err := store.GetTask(task.ID); err == nil && latest.Status == threadstore.TaskStatusStopped {
@@ -649,10 +658,17 @@ func updateTaskStatusCard(ctx context.Context, task threadstore.Task) error {
 func ensureTaskStatusCard(ctx context.Context, store *threadstore.Store, task threadstore.Task, stage string) {
 	if task.FeishuMessageID != "" {
 		if err := updateTaskStatusCard(ctx, task); err == nil {
+			// 更新成功，重置回退计数
+			resetTaskCardFallbackCount(task.ID)
 			return
 		} else {
 			_ = appendAudit(fmt.Sprintf("feishu task card update failed stage=%s task=%s message=%s err=%v", stage, task.ID, task.FeishuMessageID, err))
 		}
+	}
+	// 限制回退发新卡次数，防止更新失败时无限创建卡片
+	if incrTaskCardFallbackCount(task.ID) > maxTaskCardFallbacks {
+		_ = appendAudit(fmt.Sprintf("feishu task card fallback limit reached stage=%s task=%s", stage, task.ID))
+		return
 	}
 	messageID, err := sendTaskStatusCard(ctx, task)
 	if err != nil {

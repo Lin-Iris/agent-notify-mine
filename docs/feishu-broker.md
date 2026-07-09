@@ -236,6 +236,41 @@ agent-notify clean --purge
 
 详见 [README 卸载指南](../README.md#卸载指南)。
 
+## macOS 快捷指令
+
+如果经常开关远程对话，可以创建 macOS 快捷指令（Shortcuts）一键操作，不用每次打开终端。
+
+### 打开远程
+
+macOS「快捷指令」App → 新建 → «运行 Shell 脚本»：
+
+- Shell: `/bin/zsh`
+- 输入:
+
+```bash
+agent-notify broker command /connect --profile codex-main
+agent-notify broker command /connect --profile claude-main
+agent-notify broker start
+osascript -e 'display notification "Claude 和 Codex 远程已打开" with title "Agent Notify"'
+```
+
+之后可以把这个快捷指令固定到菜单栏，点击即开。
+
+### 彻底关闭远程
+
+同上，新建另一个快捷指令：
+
+- Shell: `/bin/zsh`
+- 输入:
+
+```bash
+agent-notify broker stop --profile codex-main
+agent-notify broker stop --profile claude-main
+osascript -e 'display notification "Claude 和 Codex 远程已关闭" with title "Agent Notify"'
+```
+
+> 提示：如果只用到其中一个 Agent（比如只用 Codex），把另一行删掉即可。`/connect` 命令会启用 profile + 刷新飞书控制卡，确保手机端立即可用。
+
 ## 常见问题
 
 ### 手机发消息后一直显示任务正在运行

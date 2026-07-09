@@ -998,6 +998,8 @@ agent-notify broker card --view threads
 
 首次使用或遇到异常时，见 [`docs/first-run-troubleshooting.md`](docs/first-run-troubleshooting.md)。常见问题包括：Codex.app CLI 路径、Claude Code VS Code 插件 CLI 路径、workspace 未设置、任务卡一直运行中、Codex `readonly database`、飞书没有回应。
 
+> 💡 macOS 用户可以创建快捷指令一键开关远程，不用每次开终端。详见 [`docs/feishu-broker.md#macos-快捷指令`](docs/feishu-broker.md#macos-快捷指令)。
+
 ## 卸载指南
 
 ### 场景一：只保留消息通知，关闭飞书远程功能

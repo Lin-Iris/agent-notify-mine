@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/hellolib/agent-notify/internal/config"
@@ -29,6 +30,7 @@ type stubFeishuMessenger struct {
 	updatedID         string
 	sentCard          map[string]any
 	sentCards         []map[string]any
+	sentPosts         []map[string]any
 	updatedCard       map[string]any
 	creatorErr        error
 	sendErr           error
@@ -60,6 +62,13 @@ func (m *stubFeishuMessenger) UpdateCard(ctx context.Context, messageID string, 
 func (m *stubFeishuMessenger) SendText(ctx context.Context, receiveIDType, receiveID string, text string) error {
 	m.sentReceiveIDType = receiveIDType
 	m.sentReceiveID = receiveID
+	return m.sendErr
+}
+
+func (m *stubFeishuMessenger) SendPost(ctx context.Context, receiveIDType, receiveID string, post map[string]any) error {
+	m.sentReceiveIDType = receiveIDType
+	m.sentReceiveID = receiveID
+	m.sentPosts = append(m.sentPosts, post)
 	return m.sendErr
 }
 
@@ -178,6 +187,66 @@ func TestFeishuSenderSendLongTextUsesMarkdownCards(t *testing.T) {
 	}
 	if !cardHasTextTag(messenger.sentCards[0], "lark_md") {
 		t.Fatalf("long text card should use lark_md: %#v", messenger.sentCards[0])
+	}
+}
+
+func TestFeishuSenderSendMarkdownPostUsesRichTextBubble(t *testing.T) {
+	provider := stubFeishuConfigProvider{cfg: FeishuCLIConfig{AppID: "app", AppSecret: "secret", ReceiveID: "ou_owner", ReceiveIDType: "open_id"}}
+	messenger := &stubFeishuMessenger{}
+	sender := NewFeishuSender(provider)
+	sender.newMessenger = func(appID, appSecret string) (feishuMessenger, error) {
+		return messenger, nil
+	}
+
+	text := "# 标题\n\n- A\n- **B**\n\n[链接](https://example.com)\n\n```go\nfmt.Println(\"ok\")\n```"
+	if err := sender.SendMarkdownPost(context.Background(), "模型输出 task_1", text); err != nil {
+		t.Fatalf("SendMarkdownPost() error = %v", err)
+	}
+	if len(messenger.sentCards) != 0 {
+		t.Fatalf("sent cards = %d, want 0", len(messenger.sentCards))
+	}
+	if len(messenger.sentPosts) != 1 {
+		t.Fatalf("sent posts = %d, want 1", len(messenger.sentPosts))
+	}
+	if _, ok := messenger.sentPosts[0]["post"]; ok {
+		t.Fatalf("IM post content should not include helpdesk-style post wrapper: %#v", messenger.sentPosts[0])
+	}
+	if _, ok := messenger.sentPosts[0]["zh_cn"]; !ok {
+		t.Fatalf("IM post content should include zh_cn at top level: %#v", messenger.sentPosts[0])
+	}
+	if !postTextContains(messenger.sentPosts[0], "标题") || !postTextContains(messenger.sentPosts[0], "fmt.Println") {
+		t.Fatalf("post should include markdown content: %#v", messenger.sentPosts[0])
+	}
+	if !postHasTag(messenger.sentPosts[0], "a") {
+		t.Fatalf("post should include link element: %#v", messenger.sentPosts[0])
+	}
+	if postHasKey(messenger.sentPosts[0], "style") {
+		t.Fatalf("post should not include unsupported style fields: %#v", messenger.sentPosts[0])
+	}
+	if !postHasKey(messenger.sentPosts[0], "un_escape") {
+		t.Fatalf("post text elements should include un_escape: %#v", messenger.sentPosts[0])
+	}
+}
+
+func TestFeishuSenderSendMarkdownPostSplitsLongContentIntoPosts(t *testing.T) {
+	provider := stubFeishuConfigProvider{cfg: FeishuCLIConfig{AppID: "app", AppSecret: "secret", ReceiveID: "ou_owner", ReceiveIDType: "open_id"}}
+	messenger := &stubFeishuMessenger{}
+	sender := NewFeishuSender(provider)
+	sender.newMessenger = func(appID, appSecret string) (feishuMessenger, error) {
+		return messenger, nil
+	}
+
+	if err := sender.SendMarkdownPost(context.Background(), "模型输出 task_1", strings.Repeat("很长的 Markdown 内容\n\n", 400)); err != nil {
+		t.Fatalf("SendMarkdownPost() error = %v", err)
+	}
+	if len(messenger.sentPosts) < 2 {
+		t.Fatalf("sent posts = %d, want at least 2", len(messenger.sentPosts))
+	}
+	if len(messenger.sentCards) != 0 {
+		t.Fatalf("sent cards = %d, want 0", len(messenger.sentCards))
+	}
+	if !postTitleContains(messenger.sentPosts[0], "(1/") {
+		t.Fatalf("first post should include sequence title: %#v", messenger.sentPosts[0])
 	}
 }
 
@@ -568,4 +637,114 @@ func cardValueContains(value any, key string, want string) bool {
 		}
 	}
 	return false
+}
+
+func postTextContains(value any, want string) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, item := range v {
+			if key == "text" {
+				if text, ok := item.(string); ok && strings.Contains(text, want) {
+					return true
+				}
+				continue
+			}
+			if postTextContains(item, want) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if postTextContains(item, want) {
+				return true
+			}
+		}
+	case []map[string]any:
+		for _, item := range v {
+			if postTextContains(item, want) {
+				return true
+			}
+		}
+	case [][]map[string]any:
+		for _, row := range v {
+			if postTextContains(row, want) {
+				return true
+			}
+		}
+	case string:
+		return strings.Contains(v, want)
+	}
+	return false
+}
+
+func postHasTag(value any, tag string) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		if v["tag"] == tag {
+			return true
+		}
+		for _, item := range v {
+			if postHasTag(item, tag) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if postHasTag(item, tag) {
+				return true
+			}
+		}
+	case []map[string]any:
+		for _, item := range v {
+			if postHasTag(item, tag) {
+				return true
+			}
+		}
+	case [][]map[string]any:
+		for _, row := range v {
+			if postHasTag(row, tag) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func postHasKey(value any, key string) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		if _, ok := v[key]; ok {
+			return true
+		}
+		for _, item := range v {
+			if postHasKey(item, key) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if postHasKey(item, key) {
+				return true
+			}
+		}
+	case []map[string]any:
+		for _, item := range v {
+			if postHasKey(item, key) {
+				return true
+			}
+		}
+	case [][]map[string]any:
+		for _, row := range v {
+			if postHasKey(row, key) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func postTitleContains(post map[string]any, want string) bool {
+	zhCN, _ := post["zh_cn"].(map[string]any)
+	title, _ := zhCN["title"].(string)
+	return strings.Contains(title, want)
 }

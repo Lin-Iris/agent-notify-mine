@@ -45,6 +45,7 @@ type feishuMessenger interface {
 	SendCard(ctx context.Context, receiveIDType, receiveID string, card map[string]any) (string, error)
 	UpdateCard(ctx context.Context, messageID string, card map[string]any) error
 	SendText(ctx context.Context, receiveIDType, receiveID string, text string) error
+	SendPost(ctx context.Context, receiveIDType, receiveID string, post map[string]any) error
 }
 
 type sdkFeishuMessenger struct {
@@ -247,6 +248,35 @@ func (s *FeishuSender) SendLongText(ctx context.Context, title, text string) err
 			cardTitle = fmt.Sprintf("%s (%d/%d)", title, i+1, len(chunks))
 		}
 		if _, err := messenger.SendCard(ctx, receiveIDType, receiveID, buildMarkdownTextCard(cardTitle, chunk)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *FeishuSender) SendMarkdownPost(ctx context.Context, title, markdown string) error {
+	cfg, err := s.provider.Parse()
+	if err != nil {
+		return err
+	}
+
+	messenger, err := s.newMessenger(cfg.AppID, cfg.AppSecret)
+	if err != nil {
+		return err
+	}
+
+	receiveIDType, receiveID, err := s.resolveReceiver(ctx, cfg, messenger)
+	if err != nil {
+		return err
+	}
+
+	chunks := splitMarkdownBlocks(markdown, 6000)
+	for i, chunk := range chunks {
+		postTitle := title
+		if len(chunks) > 1 {
+			postTitle = fmt.Sprintf("%s (%d/%d)", title, i+1, len(chunks))
+		}
+		if err := messenger.SendPost(ctx, receiveIDType, receiveID, buildMarkdownPost(postTitle, chunk)); err != nil {
 			return err
 		}
 	}
@@ -560,6 +590,260 @@ func buildMarkdownTextCard(title, content string) map[string]any {
 			},
 		},
 	})
+}
+
+func buildMarkdownPost(title, markdown string) map[string]any {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "模型输出"
+	}
+	markdown = strings.TrimSpace(markdown)
+	if markdown == "" {
+		markdown = "（无模型输出）"
+	}
+	return map[string]any{
+		"zh_cn": map[string]any{
+			"title":   title,
+			"content": markdownPostContent(markdown),
+		},
+	}
+}
+
+func markdownPostContent(markdown string) [][]map[string]any {
+	var content [][]map[string]any
+	var paragraph []string
+	var code []string
+	inFence := false
+	flushParagraph := func() {
+		text := strings.TrimSpace(strings.Join(paragraph, "\n"))
+		paragraph = nil
+		if text == "" {
+			return
+		}
+		content = append(content, inlinePostLine(text))
+	}
+	flushCode := func() {
+		text := strings.TrimRight(strings.Join(code, "\n"), "\n")
+		code = nil
+		if text == "" {
+			return
+		}
+		content = append(content, []map[string]any{textPostElement("```\n" + text + "\n```")})
+	}
+	for _, line := range strings.Split(markdown, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			if inFence {
+				flushCode()
+				inFence = false
+			} else {
+				flushParagraph()
+				inFence = true
+			}
+			continue
+		}
+		if inFence {
+			code = append(code, line)
+			continue
+		}
+		if trimmed == "" {
+			flushParagraph()
+			continue
+		}
+		if heading, ok := markdownHeading(trimmed); ok {
+			flushParagraph()
+			content = append(content, []map[string]any{textPostElement(heading)})
+			continue
+		}
+		if item, ok := markdownListItem(trimmed); ok {
+			flushParagraph()
+			content = append(content, inlinePostLine(item))
+			continue
+		}
+		paragraph = append(paragraph, line)
+	}
+	if inFence {
+		flushCode()
+	}
+	flushParagraph()
+	if len(content) == 0 {
+		return [][]map[string]any{{textPostElement("（无模型输出）")}}
+	}
+	return content
+}
+
+func markdownHeading(line string) (string, bool) {
+	level := 0
+	for level < len(line) && line[level] == '#' {
+		level++
+	}
+	if level == 0 || level > 6 || level >= len(line) || line[level] != ' ' {
+		return "", false
+	}
+	return strings.TrimSpace(line[level:]), true
+}
+
+func markdownListItem(line string) (string, bool) {
+	for _, prefix := range []string{"- ", "* ", "+ "} {
+		if strings.HasPrefix(line, prefix) {
+			return "• " + strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
+		}
+	}
+	for i := 0; i < len(line); i++ {
+		if line[i] < '0' || line[i] > '9' {
+			if i > 0 && i+1 < len(line) && line[i] == '.' && line[i+1] == ' ' {
+				return line[:i+2] + strings.TrimSpace(line[i+2:]), true
+			}
+			break
+		}
+	}
+	return "", false
+}
+
+func inlinePostLine(text string) []map[string]any {
+	var out []map[string]any
+	for len(text) > 0 {
+		linkStart := strings.Index(text, "[")
+		if linkStart < 0 {
+			out = append(out, styledTextElement(text)...)
+			break
+		}
+		if linkStart > 0 {
+			out = append(out, styledTextElement(text[:linkStart])...)
+			text = text[linkStart:]
+			continue
+		}
+		linkEnd := strings.Index(text, "](")
+		if linkEnd <= 1 {
+			out = append(out, styledTextElement(text[:1])...)
+			text = text[1:]
+			continue
+		}
+		closeParen := strings.Index(text[linkEnd+2:], ")")
+		if closeParen < 0 {
+			out = append(out, styledTextElement(text[:1])...)
+			text = text[1:]
+			continue
+		}
+		label := text[1:linkEnd]
+		href := text[linkEnd+2 : linkEnd+2+closeParen]
+		if label == "" || href == "" {
+			out = append(out, styledTextElement(text[:1])...)
+			text = text[1:]
+			continue
+		}
+		out = append(out, map[string]any{"tag": "a", "text": label, "href": href})
+		text = text[linkEnd+2+closeParen+1:]
+	}
+	if len(out) == 0 {
+		return []map[string]any{textPostElement("")}
+	}
+	return out
+}
+
+func styledTextElement(text string) []map[string]any {
+	var out []map[string]any
+	for len(text) > 0 {
+		start := strings.Index(text, "**")
+		if start < 0 {
+			out = append(out, textPostElement(text))
+			break
+		}
+		if start > 0 {
+			out = append(out, textPostElement(text[:start]))
+			text = text[start:]
+			continue
+		}
+		end := strings.Index(text[2:], "**")
+		if end < 0 {
+			out = append(out, textPostElement(text))
+			break
+		}
+		bold := text[2 : 2+end]
+		if bold != "" {
+			out = append(out, textPostElement(bold))
+		}
+		text = text[2+end+2:]
+	}
+	return out
+}
+
+func textPostElement(text string) map[string]any {
+	return map[string]any{"tag": "text", "text": text, "un_escape": true}
+}
+
+func splitMarkdownBlocks(text string, limit int) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return []string{""}
+	}
+	if limit <= 0 || len(text) <= limit {
+		return []string{text}
+	}
+	blocks := markdownBlocks(text)
+	var chunks []string
+	var current strings.Builder
+	for _, block := range blocks {
+		if len(block) > limit {
+			if strings.TrimSpace(current.String()) != "" {
+				chunks = append(chunks, strings.TrimSpace(current.String()))
+				current.Reset()
+			}
+			chunks = append(chunks, splitText(block, limit)...)
+			continue
+		}
+		addLen := len(block)
+		if current.Len() > 0 {
+			addLen += 2
+		}
+		if current.Len() > 0 && current.Len()+addLen > limit {
+			chunks = append(chunks, strings.TrimSpace(current.String()))
+			current.Reset()
+		}
+		if current.Len() > 0 {
+			current.WriteString("\n\n")
+		}
+		current.WriteString(block)
+	}
+	if strings.TrimSpace(current.String()) != "" {
+		chunks = append(chunks, strings.TrimSpace(current.String()))
+	}
+	if len(chunks) == 0 {
+		return []string{text}
+	}
+	return chunks
+}
+
+func markdownBlocks(text string) []string {
+	var blocks []string
+	var current strings.Builder
+	inFence := false
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			if current.Len() > 0 {
+				current.WriteByte('\n')
+			}
+			current.WriteString(line)
+			inFence = !inFence
+			continue
+		}
+		if !inFence && trimmed == "" {
+			if strings.TrimSpace(current.String()) != "" {
+				blocks = append(blocks, strings.TrimSpace(current.String()))
+				current.Reset()
+			}
+			continue
+		}
+		if current.Len() > 0 {
+			current.WriteByte('\n')
+		}
+		current.WriteString(line)
+	}
+	if strings.TrimSpace(current.String()) != "" {
+		blocks = append(blocks, strings.TrimSpace(current.String()))
+	}
+	return blocks
 }
 
 // buildCard creates a rich interactive card for Feishu notification
@@ -924,6 +1208,33 @@ func (m *sdkFeishuMessenger) SendText(ctx context.Context, receiveIDType, receiv
 	}
 	if !resp.Success() {
 		return fmt.Errorf("feishu send text failed: code=%d msg=%s", resp.Code, resp.Msg)
+	}
+
+	return nil
+}
+
+func (m *sdkFeishuMessenger) SendPost(ctx context.Context, receiveIDType, receiveID string, post map[string]any) error {
+	content, err := json.Marshal(post)
+	if err != nil {
+		return err
+	}
+
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(receiveIDType).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(receiveID).
+			MsgType("post").
+			Content(string(content)).
+			Uuid(uuid.NewString()).
+			Build()).
+		Build()
+
+	resp, err := m.client.Im.V1.Message.Create(ctx, req)
+	if err != nil {
+		return err
+	}
+	if !resp.Success() {
+		return fmt.Errorf("feishu send post failed: code=%d msg=%s", resp.Code, resp.Msg)
 	}
 
 	return nil

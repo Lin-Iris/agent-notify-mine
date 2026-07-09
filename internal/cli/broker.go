@@ -1107,22 +1107,33 @@ func applyBrokerCardActionValue(ctx context.Context, action, profile string, val
 		}
 		_, err = sendTaskStatusCard(ctx, tasks[0])
 		return err
-	case "task_result", "task_tail", "task_log":
+	case "task_result":
 		taskID, _ := value["task_id"].(string)
-		mode := "result"
-		if action == "task_tail" {
-			mode = "tail"
-		} else if action == "task_log" {
+		store, err := threadStore()
+		if err != nil {
+			return err
+		}
+		task, err := store.GetTask(taskID)
+		if err != nil {
+			return err
+		}
+		sender, err := feishuSenderForProfile(cfg, profile)
+		if err != nil {
+			return err
+		}
+		return sender.SendMarkdownPost(ctx, "模型输出 "+taskID, taskFinalOutputText(task))
+	case "task_tail", "task_log":
+		taskID, _ := value["task_id"].(string)
+		mode := "tail"
+		if action == "task_log" {
 			mode = "log"
 		}
 		text, err := taskText(taskID, mode, 80)
 		if err != nil {
 			return err
 		}
-		title := "模型输出 " + taskID
-		if mode == "tail" {
-			title = "最近输出 " + taskID
-		} else if mode == "log" {
+		title := "最近输出 " + taskID
+		if mode == "log" {
 			title = "完整过程 " + taskID
 		}
 		sender, err := feishuSenderForProfile(cfg, profile)

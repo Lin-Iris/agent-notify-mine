@@ -763,6 +763,19 @@ func taskTextByTask(task threadstore.Task, mode string, lines int) (string, erro
 	}
 }
 
+func taskFinalOutputText(task threadstore.Task) string {
+	if text := strings.TrimSpace(task.FinalResult); text != "" {
+		return text
+	}
+	if text := strings.TrimSpace(task.Error); text != "" {
+		return text
+	}
+	if text := strings.TrimSpace(task.Progress); text != "" {
+		return text
+	}
+	return "（无模型输出）"
+}
+
 func runningTaskForThread(store *threadstore.Store, threadID string) (threadstore.Task, error) {
 	tasks, err := store.ListTasks(threadID)
 	if err != nil {

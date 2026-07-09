@@ -118,3 +118,28 @@ func TestTaskResultReturnsModelStreamNotLog(t *testing.T) {
 		t.Fatalf("taskTextByTask() = %q, should not include log", got)
 	}
 }
+
+func TestTaskFinalOutputTextUsesFinalResultOnly(t *testing.T) {
+	task := threadstore.Task{
+		FinalResult:    "最终回答",
+		StreamOutput:   "最终回答最终回答最终回答",
+		ReasoningTrace: "显式思考摘要",
+		Progress:       "进度预览",
+	}
+
+	if got := taskFinalOutputText(task); got != "最终回答" {
+		t.Fatalf("taskFinalOutputText() = %q, want final result only", got)
+	}
+}
+
+func TestTaskFinalOutputTextFallbacksWhenFinalEmpty(t *testing.T) {
+	if got := taskFinalOutputText(threadstore.Task{Error: "任务失败"}); got != "任务失败" {
+		t.Fatalf("taskFinalOutputText(error) = %q, want error", got)
+	}
+	if got := taskFinalOutputText(threadstore.Task{Progress: "暂无最终结果"}); got != "暂无最终结果" {
+		t.Fatalf("taskFinalOutputText(progress) = %q, want progress", got)
+	}
+	if got := taskFinalOutputText(threadstore.Task{}); got != "（无模型输出）" {
+		t.Fatalf("taskFinalOutputText(empty) = %q, want empty output message", got)
+	}
+}

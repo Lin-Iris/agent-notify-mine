@@ -644,33 +644,16 @@ func updateTaskStatusCard(ctx context.Context, task threadstore.Task) error {
 }
 
 func ensureTaskStatusCard(ctx context.Context, store *threadstore.Store, task threadstore.Task, stage string) {
-	// stream 阶段：只更新已有卡片，绝不新建。
-	if task.FeishuMessageID != "" {
-		oldMessageID := task.FeishuMessageID
-		if err := updateTaskStatusCard(ctx, task); err != nil {
-			_ = appendAudit(fmt.Sprintf("feishu task card update failed stage=%s task=%s message=%s err=%v", stage, task.ID, oldMessageID, err))
-			if !isTaskLifecycleBoundary(stage) {
-				return
-			}
-			messageID, sendErr := sendTaskStatusCard(ctx, task)
-			if sendErr != nil {
-				_ = appendAudit(fmt.Sprintf("feishu task card fallback send failed stage=%s task=%s err=%v", stage, task.ID, sendErr))
-				return
-			}
-			task.FeishuMessageID = messageID
-			_ = store.UpdateTask(task)
-			_ = appendAudit(fmt.Sprintf("feishu task card fallback sent stage=%s task=%s old_message=%s new_message=%s", stage, task.ID, oldMessageID, messageID))
+	// stream 阶段不再更新原卡。飞书 UpdateMessage 对这些交互卡片
+	// 长期返回 invalid msg_type，运行中只保留初始卡，终态另发结果卡。
+	if !isTaskLifecycleBoundary(stage) {
+		if task.FeishuMessageID == "" {
+			_ = appendAudit(fmt.Sprintf("feishu task card skip stage=%s task=%s: no message id", stage, task.ID))
 		}
 		return
 	}
 
-	// 无卡片时：只有生命周期边界阶段才发一张新卡，
-	// stream/进度更新不发（避免刷屏）。
-	if !isTaskLifecycleBoundary(stage) {
-		_ = appendAudit(fmt.Sprintf("feishu task card skip stage=%s task=%s: no message id", stage, task.ID))
-		return
-	}
-
+	oldMessageID := task.FeishuMessageID
 	messageID, err := sendTaskStatusCard(ctx, task)
 	if err != nil {
 		_ = appendAudit(fmt.Sprintf("feishu task card send failed stage=%s task=%s err=%v", stage, task.ID, err))
@@ -678,7 +661,11 @@ func ensureTaskStatusCard(ctx context.Context, store *threadstore.Store, task th
 	}
 	task.FeishuMessageID = messageID
 	_ = store.UpdateTask(task)
-	_ = appendAudit(fmt.Sprintf("feishu task card sent stage=%s task=%s message=%s", stage, task.ID, messageID))
+	if oldMessageID != "" {
+		_ = appendAudit(fmt.Sprintf("feishu task card final sent stage=%s task=%s running_message=%s final_message=%s", stage, task.ID, oldMessageID, messageID))
+	} else {
+		_ = appendAudit(fmt.Sprintf("feishu task card sent stage=%s task=%s message=%s", stage, task.ID, messageID))
+	}
 }
 
 func isTaskLifecycleBoundary(stage string) bool {
@@ -699,7 +686,7 @@ func buildTaskStatus(task threadstore.Task) map[string]any {
 		Number:    task.Number,
 		Status:    task.Status,
 		Progress:  clamp(task.Progress, 1200),
-		Final:     clamp(task.FinalResult, 1800),
+		Final:     task.FinalResult,
 		LogPath:   task.LogPath,
 	})
 }

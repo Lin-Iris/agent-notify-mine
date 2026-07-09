@@ -1,6 +1,9 @@
 package notify
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBuildBrokerControlCardShowsConnectWhenDisconnected(t *testing.T) {
 	card := BuildBrokerControlCard(BrokerControlStatus{
@@ -108,6 +111,27 @@ func TestBuildDoneTaskStatusCardUsesModelOutputAction(t *testing.T) {
 	}
 	if cardTextContains(card, "不应重复展示的预览") {
 		t.Fatal("done task card should not duplicate progress when final output exists")
+	}
+}
+
+func TestBuildDoneTaskStatusCardPreviewsLongFinalOutput(t *testing.T) {
+	card := BuildTaskStatusCard(TaskStatus{
+		Profile:   "claude-main",
+		Workspace: "/repo",
+		ThreadID:  "th_1",
+		TaskID:    "task_1",
+		Number:    1,
+		Status:    "done",
+		Final:     "# 结果\n\n" + strings.Repeat("很长的 Markdown 内容\n", 80) + "尾部不应出现在卡片里",
+	})
+	if !cardTextContains(card, "最终结果预览") {
+		t.Fatal("done task card should label long final output as a preview")
+	}
+	if !cardTextContains(card, "完整 Markdown 请点击「模型输出」") {
+		t.Fatal("done task card should point users to the full markdown output action")
+	}
+	if cardTextContains(card, "尾部不应出现在卡片里") {
+		t.Fatal("done task card should not embed the entire long final output")
 	}
 }
 

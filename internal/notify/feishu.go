@@ -491,7 +491,7 @@ func BuildTaskStatusCard(status TaskStatus) map[string]any {
 		content += "\n\n**" + label + "**\n" + status.Progress
 	}
 	if status.Final != "" {
-		content += "\n\n**最终结果**\n" + status.Final
+		content += "\n\n**最终结果预览**\n" + taskFinalPreview(status.Final)
 	}
 	elements := []any{
 		map[string]any{"tag": "div", "text": map[string]any{"tag": "lark_md", "content": content}},
@@ -524,6 +524,15 @@ func BuildTaskStatusCard(status TaskStatus) map[string]any {
 		}})
 	}
 	return simpleCard(title, template, elements)
+}
+
+func taskFinalPreview(text string) string {
+	const limit = 900
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return strings.TrimRight(string(runes[:limit]), "\n\r\t ") + "\n\n_内容较长，完整 Markdown 请点击「模型输出」。_"
 }
 
 func simpleCard(title, template string, elements []any) map[string]any {

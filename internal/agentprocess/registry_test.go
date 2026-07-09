@@ -29,14 +29,14 @@ func TestValidateWorkspaceRejectsBroadOrTemporaryDirectories(t *testing.T) {
 }
 
 func TestCommandArgsUseResumeModes(t *testing.T) {
-	claudeArgs, err := commandArgsWithSession("claude", "/repo", "workspace-write", "hello", "session-1", true)
+	claudeArgs, err := commandArgsWithSession("claude", "", "/repo", "workspace-write", "hello", "session-1", true)
 	if err != nil {
 		t.Fatalf("claude commandArgsWithSession error = %v", err)
 	}
 	if !containsArg(claudeArgs, "--resume") || !containsArg(claudeArgs, "session-1") || !containsArg(claudeArgs, "stream-json") {
 		t.Fatalf("claude args = %v, want resume stream-json", claudeArgs)
 	}
-	codexArgs, err := commandArgsWithSession("codex", "/repo", "workspace-write", "hello", "session-1", true)
+	codexArgs, err := commandArgsWithSession("codex", "", "/repo", "workspace-write", "hello", "session-1", true)
 	if err != nil {
 		t.Fatalf("codex commandArgsWithSession error = %v", err)
 	}

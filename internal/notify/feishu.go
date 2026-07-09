@@ -225,9 +225,28 @@ func (s *FeishuSender) SendText(ctx context.Context, text string) error {
 }
 
 func (s *FeishuSender) SendLongText(ctx context.Context, title, text string) error {
-	chunks := splitText(title+"\n\n"+text, 3500)
-	for _, chunk := range chunks {
-		if err := s.SendText(ctx, chunk); err != nil {
+	cfg, err := s.provider.Parse()
+	if err != nil {
+		return err
+	}
+
+	messenger, err := s.newMessenger(cfg.AppID, cfg.AppSecret)
+	if err != nil {
+		return err
+	}
+
+	receiveIDType, receiveID, err := s.resolveReceiver(ctx, cfg, messenger)
+	if err != nil {
+		return err
+	}
+
+	chunks := splitMarkdown(text, 3200)
+	for i, chunk := range chunks {
+		cardTitle := title
+		if len(chunks) > 1 {
+			cardTitle = fmt.Sprintf("%s (%d/%d)", title, i+1, len(chunks))
+		}
+		if _, err := messenger.SendCard(ctx, receiveIDType, receiveID, buildMarkdownTextCard(cardTitle, chunk)); err != nil {
 			return err
 		}
 	}
@@ -516,6 +535,22 @@ func simpleCard(title, template string, elements []any) map[string]any {
 		},
 		"elements": elements,
 	}
+}
+
+func buildMarkdownTextCard(title, content string) map[string]any {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		content = "（无输出）"
+	}
+	return simpleCard(title, "blue", []any{
+		map[string]any{
+			"tag": "div",
+			"text": map[string]any{
+				"tag":     "lark_md",
+				"content": content,
+			},
+		},
+	})
 }
 
 // buildCard creates a rich interactive card for Feishu notification
@@ -900,6 +935,60 @@ func splitText(text string, limit int) []string {
 	}
 	if text != "" {
 		chunks = append(chunks, text)
+	}
+	return chunks
+}
+
+func splitMarkdown(text string, limit int) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return []string{""}
+	}
+	if limit <= 0 || len(text) <= limit {
+		return []string{text}
+	}
+	var chunks []string
+	var current strings.Builder
+	inFence := false
+	for _, line := range strings.Split(text, "\n") {
+		pendingLen := current.Len() + len(line) + 1
+		if current.Len() > 0 && pendingLen > limit {
+			chunk := strings.TrimSpace(current.String())
+			if inFence {
+				chunk += "\n```"
+			}
+			chunks = append(chunks, chunk)
+			current.Reset()
+			if inFence {
+				current.WriteString("```\n")
+			}
+		}
+		if current.Len() > 0 {
+			current.WriteByte('\n')
+		}
+		if len(line) > limit {
+			for _, piece := range splitText(line, limit) {
+				if current.Len() > 0 && current.Len()+len(piece)+1 > limit {
+					chunks = append(chunks, strings.TrimSpace(current.String()))
+					current.Reset()
+				}
+				if current.Len() > 0 {
+					current.WriteByte('\n')
+				}
+				current.WriteString(piece)
+			}
+		} else {
+			current.WriteString(line)
+		}
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+		}
+	}
+	if strings.TrimSpace(current.String()) != "" {
+		chunks = append(chunks, strings.TrimSpace(current.String()))
+	}
+	if len(chunks) == 0 {
+		return []string{text}
 	}
 	return chunks
 }

@@ -173,9 +173,9 @@ func TestMaybeHandleApprovalWritesAllowForRemoteCodexApproval(t *testing.T) {
 	if !handled {
 		t.Fatal("remote codex approval should be handled")
 	}
-	got := decodeHookDecision(t, stdout.Bytes())
-	if got.HookSpecificOutput.Decision == nil || got.HookSpecificOutput.Decision.Behavior != hookPermissionBehaviorAllow {
-		t.Fatalf("Decision = %#v, want behavior %q", got.HookSpecificOutput.Decision, hookPermissionBehaviorAllow)
+	got := decodeCodexHookDecision(t, stdout.Bytes())
+	if got.Decision != codexHookDecisionAllow {
+		t.Fatalf("Decision = %#v, want %q", got, codexHookDecisionAllow)
 	}
 }
 
@@ -278,6 +278,15 @@ func decodeHookDecision(t *testing.T, raw []byte) hookDecisionOutput {
 	var out hookDecisionOutput
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("hook decision JSON = %q, error = %v", string(raw), err)
+	}
+	return out
+}
+
+func decodeCodexHookDecision(t *testing.T, raw []byte) codexHookDecisionOutput {
+	t.Helper()
+	var out codexHookDecisionOutput
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("codex hook decision JSON = %q, error = %v", string(raw), err)
 	}
 	return out
 }

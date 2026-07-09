@@ -126,7 +126,7 @@ func TestEnsureRemoteAgentCLIAvailableChecksClaudePath(t *testing.T) {
 	writeExecutable(t, filepath.Join(dir, "claude"))
 	t.Setenv("PATH", dir)
 
-	if err := ensureRemoteAgentCLIAvailable("claude"); err != nil {
+	if err := ensureRemoteAgentCLIAvailable(config.ProfileConfig{Agent: "claude"}); err != nil {
 		t.Fatalf("ensureRemoteAgentCLIAvailable() error = %v", err)
 	}
 }
@@ -134,7 +134,7 @@ func TestEnsureRemoteAgentCLIAvailableChecksClaudePath(t *testing.T) {
 func TestEnsureRemoteAgentCLIAvailableReturnsClearClaudeError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	err := ensureRemoteAgentCLIAvailable("claude")
+	err := ensureRemoteAgentCLIAvailable(config.ProfileConfig{Agent: "claude"})
 	if err == nil {
 		t.Fatal("ensureRemoteAgentCLIAvailable() error = nil, want missing CLI error")
 	}

@@ -28,6 +28,7 @@ type stubFeishuMessenger struct {
 	messageID         string
 	updatedID         string
 	sentCard          map[string]any
+	sentCards         []map[string]any
 	updatedCard       map[string]any
 	creatorErr        error
 	sendErr           error
@@ -46,6 +47,7 @@ func (m *stubFeishuMessenger) SendCard(ctx context.Context, receiveIDType, recei
 	m.sentReceiveIDType = receiveIDType
 	m.sentReceiveID = receiveID
 	m.sentCard = card
+	m.sentCards = append(m.sentCards, card)
 	return m.messageID, m.sendErr
 }
 
@@ -154,6 +156,28 @@ func TestFeishuSenderUpdateRawCardUsesMessageID(t *testing.T) {
 	}
 	if messenger.updatedCard == nil {
 		t.Fatal("updated card should be set")
+	}
+}
+
+func TestFeishuSenderSendLongTextUsesMarkdownCards(t *testing.T) {
+	provider := stubFeishuConfigProvider{cfg: FeishuCLIConfig{AppID: "app", AppSecret: "secret", ReceiveID: "ou_owner", ReceiveIDType: "open_id"}}
+	messenger := &stubFeishuMessenger{messageID: "om_md"}
+	sender := NewFeishuSender(provider)
+	sender.newMessenger = func(appID, appSecret string) (feishuMessenger, error) {
+		return messenger, nil
+	}
+
+	if err := sender.SendLongText(context.Background(), "模型输出 task_1", "# 标题\n\n- A\n- B\n\n```go\nfmt.Println(\"ok\")\n```"); err != nil {
+		t.Fatalf("SendLongText() error = %v", err)
+	}
+	if len(messenger.sentCards) != 1 {
+		t.Fatalf("sent cards = %d, want 1", len(messenger.sentCards))
+	}
+	if !cardTextContains(messenger.sentCards[0], "# 标题") {
+		t.Fatalf("markdown card should include rendered content: %#v", messenger.sentCards[0])
+	}
+	if !cardHasTextTag(messenger.sentCards[0], "lark_md") {
+		t.Fatalf("long text card should use lark_md: %#v", messenger.sentCards[0])
 	}
 }
 
@@ -459,6 +483,27 @@ func cardAllText(value any) string {
 	default:
 		return ""
 	}
+}
+
+func cardHasTextTag(value any, tag string) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		if v["tag"] == tag {
+			return true
+		}
+		for _, item := range v {
+			if cardHasTextTag(item, tag) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if cardHasTextTag(item, tag) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func cardHasTag(value any, tag string) bool {

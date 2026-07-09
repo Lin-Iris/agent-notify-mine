@@ -21,28 +21,6 @@ import (
 
 const threadPageSize = 5
 
-const maxTaskCardFallbacks = 3
-
-// --- 卡片回退限制（防止更新失败时无限创建新卡片）---
-
-var (
-	taskCardFallbackCounts   = map[string]int{}
-	taskCardFallbackCountsMu sync.Mutex
-)
-
-func incrTaskCardFallbackCount(taskID string) int {
-	taskCardFallbackCountsMu.Lock()
-	defer taskCardFallbackCountsMu.Unlock()
-	taskCardFallbackCounts[taskID]++
-	return taskCardFallbackCounts[taskID]
-}
-
-func resetTaskCardFallbackCount(taskID string) {
-	taskCardFallbackCountsMu.Lock()
-	defer taskCardFallbackCountsMu.Unlock()
-	delete(taskCardFallbackCounts, taskID)
-}
-
 func newThreadCmd(streams Streams) *cobra.Command {
 	cmd := &cobra.Command{Use: "thread", Short: "Manage broker conversation threads"}
 	cmd.AddCommand(
@@ -409,6 +387,20 @@ func startThreadTask(ctx context.Context, profile, prompt string) (agentprocess.
 			_ = store.UpdateThread(thread)
 		}
 	}
+	reg, logsDir, err := processRegistry()
+	if err != nil {
+		return agentprocess.Record{}, threadstore.Thread{}, threadstore.Task{}, err
+	}
+	if running, err := runningTaskForThread(store, thread.ID); err == nil && running.ID != "" {
+		return agentprocess.Record{}, thread, running, fmt.Errorf("当前对话已有任务正在运行，请等待完成后再发新任务。发送 /stop 可强制停止")
+	}
+	if running, err := reg.List(profile); err == nil {
+		for _, rec := range running {
+			if rec.Status == "running" {
+				return agentprocess.Record{}, thread, threadstore.Task{}, fmt.Errorf("当前 Agent 已有任务正在运行，请等待完成后再发新任务。发送 /stop 可强制停止")
+			}
+		}
+	}
 	home, err := config.HomeDir()
 	if err != nil {
 		return agentprocess.Record{}, threadstore.Thread{}, threadstore.Task{}, err
@@ -417,10 +409,6 @@ func startThreadTask(ctx context.Context, profile, prompt string) (agentprocess.
 	logPath := filepath.Join(home, "logs", "runs", profile+"-"+thread.ID+"-"+taskID+".log")
 	outputPath := filepath.Join(home, "logs", "runs", profile+"-"+thread.ID+"-"+taskID+".out")
 	task, err := store.CreateTaskWithID(thread, taskID, prompt, logPath, outputPath)
-	if err != nil {
-		return agentprocess.Record{}, threadstore.Thread{}, threadstore.Task{}, err
-	}
-	reg, logsDir, err := processRegistry()
 	if err != nil {
 		return agentprocess.Record{}, threadstore.Thread{}, threadstore.Task{}, err
 	}
@@ -455,31 +443,31 @@ func startThreadTask(ctx context.Context, profile, prompt string) (agentprocess.
 		TaskID:          task.ID,
 		NativeSessionID: thread.NativeSessionID,
 		Resume:          thread.NativeResume,
-			OnOutput: func(line string) {
-				fragment := parseModelStreamLine(line)
-				if fragment.Output == "" && fragment.Reasoning == "" {
-					return
-				}
-				taskMu.Lock()
-				if latest, err := store.GetTask(task.ID); err == nil && latest.Status == threadstore.TaskStatusStopped {
-					taskMu.Unlock()
-					return
-				}
-				if fragment.Output != "" {
-					task.StreamOutput += fragment.Output
-				}
-				if fragment.Reasoning != "" {
-					if task.ReasoningTrace != "" {
-						task.ReasoningTrace += "\n"
-					}
-					task.ReasoningTrace += fragment.Reasoning
-				}
-				task.Progress = streamProgress(task.StreamOutput)
-				snapshot := task
+		OnOutput: func(line string) {
+			fragment := parseModelStreamLine(line)
+			if fragment.Output == "" && fragment.Reasoning == "" {
+				return
+			}
+			taskMu.Lock()
+			if latest, err := store.GetTask(task.ID); err == nil && latest.Status == threadstore.TaskStatusStopped {
 				taskMu.Unlock()
-				_ = os.WriteFile(outputPath, []byte(modelOutputText(snapshot)), 0o600)
-				_ = store.UpdateTask(snapshot)
-			},
+				return
+			}
+			if fragment.Output != "" {
+				task.StreamOutput += fragment.Output
+			}
+			if fragment.Reasoning != "" {
+				if task.ReasoningTrace != "" {
+					task.ReasoningTrace += "\n"
+				}
+				task.ReasoningTrace += fragment.Reasoning
+			}
+			task.Progress = streamProgress(task.StreamOutput)
+			snapshot := task
+			taskMu.Unlock()
+			_ = os.WriteFile(outputPath, []byte(modelOutputText(snapshot)), 0o600)
+			_ = store.UpdateTask(snapshot)
+		},
 		OnExit: func(rec agentprocess.Record, output string, exitCode int, runErr error) {
 			taskMu.Lock()
 			if latest, err := store.GetTask(task.ID); err == nil && latest.Status == threadstore.TaskStatusStopped {
@@ -656,30 +644,50 @@ func updateTaskStatusCard(ctx context.Context, task threadstore.Task) error {
 }
 
 func ensureTaskStatusCard(ctx context.Context, store *threadstore.Store, task threadstore.Task, stage string) {
+	// stream 阶段：只更新已有卡片，绝不新建。
 	if task.FeishuMessageID != "" {
-		if err := updateTaskStatusCard(ctx, task); err == nil {
-			// 更新成功，重置回退计数
-			resetTaskCardFallbackCount(task.ID)
-			return
-		} else {
-			_ = appendAudit(fmt.Sprintf("feishu task card update failed stage=%s task=%s message=%s err=%v", stage, task.ID, task.FeishuMessageID, err))
+		oldMessageID := task.FeishuMessageID
+		if err := updateTaskStatusCard(ctx, task); err != nil {
+			_ = appendAudit(fmt.Sprintf("feishu task card update failed stage=%s task=%s message=%s err=%v", stage, task.ID, oldMessageID, err))
+			if !isTaskLifecycleBoundary(stage) {
+				return
+			}
+			messageID, sendErr := sendTaskStatusCard(ctx, task)
+			if sendErr != nil {
+				_ = appendAudit(fmt.Sprintf("feishu task card fallback send failed stage=%s task=%s err=%v", stage, task.ID, sendErr))
+				return
+			}
+			task.FeishuMessageID = messageID
+			_ = store.UpdateTask(task)
+			_ = appendAudit(fmt.Sprintf("feishu task card fallback sent stage=%s task=%s old_message=%s new_message=%s", stage, task.ID, oldMessageID, messageID))
 		}
-	}
-	// 限制回退发新卡次数，防止更新失败时无限创建卡片
-	if incrTaskCardFallbackCount(task.ID) > maxTaskCardFallbacks {
-		_ = appendAudit(fmt.Sprintf("feishu task card fallback limit reached stage=%s task=%s", stage, task.ID))
 		return
 	}
+
+	// 无卡片时：只有生命周期边界阶段才发一张新卡，
+	// stream/进度更新不发（避免刷屏）。
+	if !isTaskLifecycleBoundary(stage) {
+		_ = appendAudit(fmt.Sprintf("feishu task card skip stage=%s task=%s: no message id", stage, task.ID))
+		return
+	}
+
 	messageID, err := sendTaskStatusCard(ctx, task)
 	if err != nil {
-		_ = appendAudit(fmt.Sprintf("feishu task card fallback send failed stage=%s task=%s err=%v", stage, task.ID, err))
+		_ = appendAudit(fmt.Sprintf("feishu task card send failed stage=%s task=%s err=%v", stage, task.ID, err))
 		return
 	}
-	if messageID != "" && messageID != task.FeishuMessageID {
-		task.FeishuMessageID = messageID
-		_ = store.UpdateTask(task)
+	task.FeishuMessageID = messageID
+	_ = store.UpdateTask(task)
+	_ = appendAudit(fmt.Sprintf("feishu task card sent stage=%s task=%s message=%s", stage, task.ID, messageID))
+}
+
+func isTaskLifecycleBoundary(stage string) bool {
+	switch stage {
+	case "final", "stopped", "start_failed", "workspace_failed":
+		return true
+	default:
+		return false
 	}
-	_ = appendAudit(fmt.Sprintf("feishu task card fallback sent stage=%s task=%s message=%s", stage, task.ID, messageID))
 }
 
 func buildTaskStatus(task threadstore.Task) map[string]any {
@@ -766,6 +774,19 @@ func taskTextByTask(task threadstore.Task, mode string, lines int) (string, erro
 	default:
 		return "", fmt.Errorf("unknown task text mode: %s", mode)
 	}
+}
+
+func runningTaskForThread(store *threadstore.Store, threadID string) (threadstore.Task, error) {
+	tasks, err := store.ListTasks(threadID)
+	if err != nil {
+		return threadstore.Task{}, err
+	}
+	for _, task := range tasks {
+		if task.Status == threadstore.TaskStatusRunning {
+			return task, nil
+		}
+	}
+	return threadstore.Task{}, nil
 }
 
 type modelStreamFragment struct {

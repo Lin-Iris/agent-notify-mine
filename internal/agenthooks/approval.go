@@ -29,9 +29,16 @@ type hookPermissionRequestReply struct {
 	UpdatedInput map[string]any `json:"updatedInput,omitempty"`
 }
 
+type codexHookDecisionOutput struct {
+	Decision string `json:"decision,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
 const (
 	hookPermissionBehaviorAllow = "allow"
 	hookPermissionBehaviorDeny  = "deny"
+	codexHookDecisionAllow      = "allow"
+	codexHookDecisionBlock      = "block"
 )
 
 var sendApprovalPromptForHook = sendApprovalPrompt
@@ -104,18 +111,18 @@ func MaybeHandleApproval(ctx context.Context, cfg config.Config, statePath, logP
 	_ = state.AppendLog(logPath, fmt.Sprintf("approval waiting id=%s", req.ApprovalID))
 	result, err := store.Wait(ctx, req.ApprovalID, ttl)
 	if err != nil {
-		if writeErr := writeHookDecision(stdout, evt.HookEvent, hookPermissionBehaviorDeny, "approval timed out or failed"); writeErr != nil {
+		if writeErr := writeAgentHookDecision(stdout, evt.Agent, evt.HookEvent, hookPermissionBehaviorDeny, "approval timed out or failed"); writeErr != nil {
 			_ = state.AppendLog(logPath, fmt.Sprintf("approval decision write error id=%s err=%v", req.ApprovalID, writeErr))
 		}
 		return true, state.AppendLog(logPath, fmt.Sprintf("approval denied by timeout id=%s err=%v", req.ApprovalID, err))
 	}
 	if result.Status == approval.StatusApproved {
-		if writeErr := writeHookDecision(stdout, evt.HookEvent, hookPermissionBehaviorAllow, "approved via Feishu approval "+req.ApprovalID); writeErr != nil {
+		if writeErr := writeAgentHookDecision(stdout, evt.Agent, evt.HookEvent, hookPermissionBehaviorAllow, "approved via Feishu approval "+req.ApprovalID); writeErr != nil {
 			_ = state.AppendLog(logPath, fmt.Sprintf("approval decision write error id=%s err=%v", req.ApprovalID, writeErr))
 		}
 		return true, state.AppendLog(logPath, fmt.Sprintf("approval allowed id=%s operator=%s", req.ApprovalID, result.OperatorID))
 	}
-	if writeErr := writeHookDecision(stdout, evt.HookEvent, hookPermissionBehaviorDeny, firstNonEmpty(result.Reason, "denied via Feishu approval "+req.ApprovalID)); writeErr != nil {
+	if writeErr := writeAgentHookDecision(stdout, evt.Agent, evt.HookEvent, hookPermissionBehaviorDeny, firstNonEmpty(result.Reason, "denied via Feishu approval "+req.ApprovalID)); writeErr != nil {
 		_ = state.AppendLog(logPath, fmt.Sprintf("approval decision write error id=%s err=%v", req.ApprovalID, writeErr))
 	}
 	return true, state.AppendLog(logPath, fmt.Sprintf("approval denied id=%s operator=%s", req.ApprovalID, result.OperatorID))
@@ -124,6 +131,9 @@ func MaybeHandleApproval(ctx context.Context, cfg config.Config, statePath, logP
 func sendApprovalPrompt(ctx context.Context, cfg config.Config, logPath string, evt event.Event, req approval.Request, profileName string, profile config.ProfileConfig) error {
 	body := fmt.Sprintf("工具: %s\n工作目录: %s\n授权内容:\n%s\n有效期: %s",
 		req.Tool, req.Workspace, req.CommandSummary, req.ExpiresAt.Format("15:04:05"))
+	if evt.Agent == "codex" && os.Getenv("AGENT_NOTIFY_REMOTE_PROFILE") == "" {
+		body += "\n\n说明: 飞书远程启动的 Codex 任务会使用这里的审批结果；如果这是 Codex App 本地弹窗，可能仍需要在电脑上确认。"
+	}
 	msg := notify.Message{
 		Agent:         evt.Agent,
 		Event:         "permission_required",
@@ -145,6 +155,35 @@ func sendApprovalPrompt(ctx context.Context, cfg config.Config, logPath string, 
 	sendCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.Behavior.SendTimeoutSeconds)*time.Second)
 	defer cancel()
 	return sender.Send(sendCtx, msg)
+}
+
+func writeAgentHookDecision(stdout io.Writer, agent, eventName, behavior, reason string) error {
+	if agent == "codex" {
+		return writeCodexHookDecision(stdout, behavior, reason)
+	}
+	return writeHookDecision(stdout, eventName, behavior, reason)
+}
+
+func writeCodexHookDecision(stdout io.Writer, behavior, reason string) error {
+	if stdout == nil {
+		return nil
+	}
+	decision := codexHookDecisionAllow
+	if behavior == hookPermissionBehaviorDeny {
+		decision = codexHookDecisionBlock
+	}
+	out := codexHookDecisionOutput{
+		Decision: decision,
+		Reason:   reason,
+	}
+	if decision == codexHookDecisionAllow {
+		out.Reason = ""
+	}
+	if err := json.NewEncoder(stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: writeCodexHookDecision encode error: %v\n", err)
+		return err
+	}
+	return nil
 }
 
 func writeHookDecision(stdout io.Writer, eventName, behavior, reason string) error {

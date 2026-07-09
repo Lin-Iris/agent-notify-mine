@@ -1,13 +1,20 @@
 package notify
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestBarkSenderName(t *testing.T) {
 	s := NewBarkSender("https://api.day.app/key")
@@ -29,7 +36,8 @@ func TestBarkSenderSendEmptyURL(t *testing.T) {
 
 func TestBarkSenderSendSuccess(t *testing.T) {
 	var gotPayload map[string]string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s := NewBarkSender("https://example.test/testkey/replace-me?group=codex")
+	s.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
@@ -45,13 +53,9 @@ func TestBarkSenderSendSuccess(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
 			t.Errorf("decode payload: %v", err)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer srv.Close()
+		return barkTestResponse(http.StatusOK, `{"code":200,"message":"success"}`), nil
+	})}
 
-	s := NewBarkSender(srv.URL + "/testkey/replace-me?group=codex")
 	msg := Message{Title: "Codex 运行完成", Body: "任务已完成"}
 	if err := s.Send(context.Background(), msg); err != nil {
 		t.Fatalf("Send() error = %v", err)
@@ -66,17 +70,14 @@ func TestBarkSenderSendSuccess(t *testing.T) {
 
 func TestBarkSenderUsesCodexTaskTitle(t *testing.T) {
 	var gotPayload map[string]string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s := NewBarkSender("https://example.test/testkey")
+	s.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
 			t.Errorf("decode payload: %v", err)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer srv.Close()
+		return barkTestResponse(http.StatusOK, `{"code":200,"message":"success"}`), nil
+	})}
 
-	s := NewBarkSender(srv.URL + "/testkey")
 	msg := Message{
 		Agent: "codex",
 		Event: "run_completed",
@@ -95,13 +96,10 @@ func TestBarkSenderUsesCodexTaskTitle(t *testing.T) {
 }
 
 func TestBarkSenderSendHTTPError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("internal error"))
-	}))
-	defer srv.Close()
-
-	s := NewBarkSender(srv.URL + "/testkey")
+	s := NewBarkSender("https://example.test/testkey")
+	s.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return barkTestResponse(http.StatusInternalServerError, "internal error"), nil
+	})}
 	err := s.Send(context.Background(), Message{Title: "t", Body: "b"})
 	if err == nil {
 		t.Fatal("Send() error = nil, want HTTP error")
@@ -112,19 +110,23 @@ func TestBarkSenderSendHTTPError(t *testing.T) {
 }
 
 func TestBarkSenderSendAPIError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"code":400,"message":"bad key"}`))
-	}))
-	defer srv.Close()
-
-	s := NewBarkSender(srv.URL + "/testkey")
+	s := NewBarkSender("https://example.test/testkey")
+	s.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return barkTestResponse(http.StatusOK, `{"code":400,"message":"bad key"}`), nil
+	})}
 	err := s.Send(context.Background(), Message{Title: "t", Body: "b"})
 	if err == nil {
 		t.Fatal("Send() error = nil, want api error")
 	}
 	if !strings.Contains(err.Error(), "api error") {
 		t.Fatalf("Send() error = %v, want api error", err)
+	}
+}
+
+func barkTestResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewBufferString(body)),
 	}
 }

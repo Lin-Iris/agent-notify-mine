@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -29,7 +28,8 @@ func TestWechatWorkSenderSendEmptyURL(t *testing.T) {
 
 func TestWechatWorkSenderSendSuccess(t *testing.T) {
 	var gotPayload map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s := NewWechatWorkSender("https://example.test/webhook")
+	s.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
@@ -39,13 +39,9 @@ func TestWechatWorkSenderSendSuccess(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
 			t.Errorf("decode payload: %v", err)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
-	}))
-	defer srv.Close()
+		return barkTestResponse(http.StatusOK, `{"errcode":0,"errmsg":"ok"}`), nil
+	})}
 
-	s := NewWechatWorkSender(srv.URL)
 	msg := Message{
 		Agent:     "claude",
 		Event:     "permission_required",
@@ -81,13 +77,10 @@ func TestWechatWorkSenderSendSuccess(t *testing.T) {
 }
 
 func TestWechatWorkSenderSendHTTPError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("internal error"))
-	}))
-	defer srv.Close()
-
-	s := NewWechatWorkSender(srv.URL)
+	s := NewWechatWorkSender("https://example.test/webhook")
+	s.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return barkTestResponse(http.StatusInternalServerError, "internal error"), nil
+	})}
 	err := s.Send(context.Background(), Message{Title: "t", Body: "b"})
 	if err == nil {
 		t.Fatal("Send() error = nil, want error for HTTP 500")
@@ -98,14 +91,10 @@ func TestWechatWorkSenderSendHTTPError(t *testing.T) {
 }
 
 func TestWechatWorkSenderSendAPIError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"errcode":93000,"errmsg":"invalid webhook url"}`))
-	}))
-	defer srv.Close()
-
-	s := NewWechatWorkSender(srv.URL)
+	s := NewWechatWorkSender("https://example.test/webhook")
+	s.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return barkTestResponse(http.StatusOK, `{"errcode":93000,"errmsg":"invalid webhook url"}`), nil
+	})}
 	err := s.Send(context.Background(), Message{Title: "t", Body: "b"})
 	if err == nil {
 		t.Fatal("Send() error = nil, want api error")

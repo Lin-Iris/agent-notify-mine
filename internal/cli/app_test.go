@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -343,6 +344,13 @@ func TestRunInitRemoteFeishuConversationFallsBackToAppCreatorOpenID(t *testing.T
 func TestRunTestFeishuWithoutConfig(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	oldPrepare := prepareFeishuCLI
+	prepareFeishuCLI = func(ctx context.Context) error {
+		return fmt.Errorf("feishu is disabled")
+	}
+	defer func() {
+		prepareFeishuCLI = oldPrepare
+	}()
 
 	var stdout bytes.Buffer
 	err := Run(context.Background(), []string{"test", "feishu"}, strings.NewReader(""), &stdout, &bytes.Buffer{})

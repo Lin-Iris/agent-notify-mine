@@ -30,18 +30,20 @@
 
 ### 支持的事件
 
-| 事件 | 说明 | Claude Code | Codex | CodeBuddy |
-|------|------|:---:|:---:|:---:|
-| `permission_required` | Agent 需要授权（如执行命令） | ✅ | ✅ | ✅ |
-| `input_required` | Agent 等待用户输入 | ✅ | — | ✅ |
-| `run_completed` | 任务执行完成 | ✅ | ✅ | ✅ |
-| `run_failed` | 任务执行失败 | ✅ | — | ✅ |
+| 事件 | 说明 | Claude Code | Codex | CodeBuddy | Cursor | Hermes |
+|------|------|:---:|:---:|:---:|:---:|:---:|
+| `permission_required` | Agent 需要授权（如执行命令） | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `input_required` | Agent 等待用户输入 | ✅ | — | ✅ | — | — |
+| `run_completed` | 任务执行完成 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `run_failed` | 任务执行失败 | ✅ | — | ✅ | ✅ | — |
 
 说明：
 
 - Claude Code 通过 `~/.claude/settings.json` 的 hooks 订阅四个事件（`PermissionRequest`、`Notification`、`Stop`、`PostToolUseFailure`）。
 - Codex 通过 `~/.codex/hooks.json` 订阅 `PermissionRequest` 与 `Stop`，分别映射到 `permission_required` 与 `run_completed`。`input_required` 与 `run_failed` Codex 目前没有对应 hook，因此暂不支持。
-- CodeBuddy 通过 `~/.codebuddy/settings.json` 的 hooks 订阅五个事件（`PermissionRequest`、`Notification`、`Stop`、`SessionEnd`、`PostToolUseFailure`），全部映射到通知事件。
+- CodeBuddy 通过 `~/.codebuddy/settings.json` 的 hooks 订阅六个事件（`PermissionRequest`、`Notification`、`Stop`、`SessionEnd`、`PostToolUseFailure`、`PreToolUse`），全部映射到通知事件。
+- Cursor 通过 `~/.cursor/hooks.json` 的 hooks 订阅三个事件（`beforeShellExecution`、`stop`、`postToolUseFailure`），映射到 `permission_required`、`run_completed`/`run_failed`。`input_required` Cursor 目前没有对应 hook。
+- Hermes 通过 `~/.hermes/config.yaml` 的 hooks 订阅两个事件（`pre_approval_request`、`post_llm_call`），映射到 `permission_required`、`run_completed`。`input_required` 与 `run_failed` Hermes 目前不支持。
 
 普通消息通知只负责提醒：`PermissionRequest` 会被转成 `permission_required` 通知，不接管 Codex 桌面 App 或 Claude/Codex 自身的授权弹窗。只有开启飞书远程对话后，由 broker 启动的受控 Agent 子进程才支持手机审批。
 
@@ -366,6 +368,17 @@ Hermes 推荐事件:
           {
             "type": "command",
             "command": "/usr/local/bin/agent-notify handle-codebuddy-hook"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "execute_command|write_to_file|delete_file|create_file|ask_followup_question|edit_and_apply|edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/agent-notify handle-codebuddy-pretooluse"
           }
         ]
       }
@@ -798,7 +811,9 @@ agent-notify 自身配置位于 `~/.agent-notify/config.yaml`。Agent 集成配�
 
 - Claude Code: `~/.claude/settings.json`（hooks 命令: `agent-notify handle-claude-hook`）
 - Codex: `~/.codex/hooks.json`（hooks 命令: `agent-notify handle-codex-hook`，需在 Codex 内运行 `/hooks` 完成 trust）
-- CodeBuddy: `~/.codebuddy/settings.json`（hooks 命令: `agent-notify handle-codebuddy-hook`）
+- CodeBuddy: `~/.codebuddy/settings.json`（hooks 命令: `agent-notify handle-codebuddy-hook`，PreToolUse: `agent-notify handle-codebuddy-pretooluse`）
+- Cursor: `~/.cursor/hooks.json`（hooks 命令: `agent-notify handle-cursor-hook`）
+- Hermes: `~/.hermes/config.yaml`（hooks 命令: `agent-notify handle-hermes-hook`）
 
 ## 工作流程
 
@@ -1021,6 +1036,8 @@ agent-notify broker stop --profile codex-main
 | Claude Code hooks（`~/.claude/settings.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
 | Codex hooks（`~/.codex/hooks.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
 | CodeBuddy hooks（`~/.codebuddy/settings.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
+| Cursor hooks（`~/.cursor/hooks.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
+| Hermes hooks（`~/.hermes/config.yaml` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
 | **二进制本身**（`~/.local/bin/agent-notify` 或 `~/.agent-notify/agent-notify`） | ❌ 不删 |
 | **npm 全局包** | ❌ 不删 |
 | **VS Code 扩展** | ❌ 不删 |

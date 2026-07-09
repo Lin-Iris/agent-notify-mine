@@ -290,3 +290,61 @@ agent-notify profile list
 agent-notify broker stop --profile codex-main
 ```
 
+## 只想用消息通知，不想要远程功能
+
+如果之前配置了飞书远程对话，后来只想保留消息通知：
+
+```bash
+# 1. 完全停止远程对话
+agent-notify broker stop
+
+# 2. 手动编辑 ~/.agent-notify/config.yaml，删除或清空 profiles 中对应项
+#    例如把 claude-main 的 feishu 字段清空：
+#    profiles:
+#      claude-main:
+#        agent: claude
+#        enabled: false
+#        feishu:
+#          app_id: ""
+#          app_secret: ""
+#          owner_open_id: ""
+
+# 3. (可选) 删除多余 profile
+agent-notify profile remove codex-main
+```
+
+> 注意：`agent-notify clean` 会重置整个 config.yaml，连消息通知配置（渠道凭证、事件订阅）一起清除。如果只想清远程留通知，手动编辑 config.yaml 是更好的选择。
+
+也可以用更简单的方式：不删 profile，只是关闭远程后不再 `broker start`。消息通知 hooks 完全独立于 broker，broker 关不关都不影响通知推送。profile 和飞书凭证留在配置文件里不会产生任何后台进程。
+
+## 验证远程已完全关闭
+
+运行以下命令确认 broker 已经停止、无后台进程残留：
+
+```bash
+# 检查 broker 状态
+agent-notify broker status
+
+# 期望输出：broker=false, listener=false, profile_enabled=false
+
+# 检查是否有残留 agent-notify 后台进程
+ps aux | grep "agent-notify broker" | grep -v grep
+
+# 如果没有输出，说明 daemon 已完全退出
+
+# 检查 profile 列表
+agent-notify profile list
+
+# 期望：对应 profile 显示 enabled=false
+```
+
+如果 `ps aux` 仍有 `agent-notify broker run` 进程残留：
+
+```bash
+# 强制杀掉残留 daemon
+pkill -f "agent-notify broker run"
+
+# 清理 pid 文件
+rm -f ~/.agent-notify/broker.pid
+```
+

@@ -1000,12 +1000,29 @@ agent-notify broker card --view threads
 
 ## 卸载指南
 
-### 临时关闭远程对话
+### 场景一：只保留消息通知，关闭飞书远程功能
+
+如果配置了飞书远程对话，后来只想用消息通知，不需要卸载整个项目：
+
+```bash
+# 1. 断开所有 profile（关闭远程对话功能，拒绝待审批，停止受控进程）
+agent-notify broker stop --profile claude-main
+agent-notify broker stop --profile codex-main
+
+# 2. (可选) 删除 profile 中的飞书凭证，只保留消息通知配置
+# 编辑 ~/.agent-notify/config.yaml，删除或清空对应 profile 的 feishu 字段
+```
+
+也可以直接在飞书控制卡里点击「断开并清理」按钮。broker 后台进程会在所有 profile 关闭后自动退出。
+
+此时消息通知 hooks 不受影响，Agent 事件照常推送。
+
+### 场景二：暂时关闭远程对话（之后会重新开启）
 
 如果只是暂时不用手机飞书远程对话，不需要卸载：
 
 ```bash
-# 关闭当前 active profile
+# 关闭当前 active profile 的远程功能
 agent-notify broker stop
 
 # 关闭指定 profile
@@ -1013,74 +1030,96 @@ agent-notify broker stop --profile claude-main
 agent-notify broker stop --profile codex-main
 ```
 
-也可以在飞书控制卡里点击“暂停通信”或“断开并清理”。普通消息通知不依赖 broker，关闭 broker 不会影响已经配置好的 hook 通知。
+`broker stop` 会：禁用 profile、拒绝待审批、停止受控 Agent 子进程、停止 broker 后台守护进程。
 
-### `agent-notify clean` 清理内容
+之后恢复使用：
 
-| 清理项 | 是否删除 |
-|--------|:-------:|
-| `~/.agent-notify/config.yaml`（通知渠道凭证、事件订阅） | ✅ 删 |
-| `~/.agent-notify/state.json`（去重状态） | ✅ 删 |
-| `~/.agent-notify/agent-notify.log`（日志） | ✅ 删 |
-| `~/.agent-notify/approvals.json`（待审批/审批历史） | ✅ 删 |
-| `~/.agent-notify/processes.json`（受控进程登记） | ✅ 删 |
-| `~/.agent-notify/threads.json`（项目对话窗口） | ✅ 删 |
-| `~/.agent-notify/tasks.json`（任务结果和日志索引） | ✅ 删 |
-| `~/.agent-notify/views.json`（飞书卡片导航状态） | ✅ 删 |
-| `~/.agent-notify/broker.pid`（broker 长连接进程登记） | ✅ 删 |
-| `~/.agent-notify/audit.log`（broker 审计日志） | ✅ 删 |
-| `~/.agent-notify/logs/`（受控任务运行日志） | ✅ 删 |
-| 当前 broker profile 的 pending approvals | ✅ 默认拒绝 |
-| broker 启动的 Codex / Claude Code 子进程 | ✅ 发送停止信号 |
-| 远程飞书对话 profile 配置（如 `claude-main` / `codex-main` 的 bot 凭证） | ✅ 重置 |
-| Claude Code hooks（`~/.claude/settings.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
-| Codex hooks（`~/.codex/hooks.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
-| CodeBuddy hooks（`~/.codebuddy/settings.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
-| Cursor hooks（`~/.cursor/hooks.json` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
-| Hermes hooks（`~/.hermes/config.yaml` 中 agent-notify 条目） | ✅ 仅移除自身条目，保留用户配置 |
-| **二进制本身**（`~/.local/bin/agent-notify` 或 `~/.agent-notify/agent-notify`） | ❌ 不删 |
-| **npm 全局包** | ❌ 不删 |
-| **VS Code 扩展** | ❌ 不删 |
+```bash
+# 重新开启远程对话
+agent-notify broker start
 
-### 彻底卸载
+# 确认状态正常
+agent-notify broker card --profile claude-main
+```
+
+也可以在飞书控制卡里点击「暂停通信」（保留 daemon，只暂停当前 profile）或「断开并清理」（完全断开并停止 daemon）。
+
+### 场景三：彻底卸载整个项目
 
 根据你的安装方式选择：
 
-#### 方式一：install.sh 安装的
+#### install.sh 安装的
 
 ```bash
-# 1. 清理配置和 hooks
+# 1. 先停止 broker 守护进程
+agent-notify broker stop
+
+# 2. 清理所有配置、hooks、状态、日志
 agent-notify clean --purge
 
-# 2. 删二进制
+# 3. 删除二进制
 rm ~/.local/bin/agent-notify
 
-# 3. （可选）从 ~/.zshrc 或 ~/.bashrc 中删掉 PATH 行
-# export PATH="$HOME/.local/bin:$PATH"
+# 4. （可选）从 ~/.zshrc 或 ~/.bashrc 中删除 PATH 行
+# export PATH=”$HOME/.local/bin:$PATH”
 ```
 
-#### 方式二：npx 安装的
+#### npx 安装的
 
 ```bash
-# 1. 清理配置、hooks、broker 状态和日志
+# 1. 停止 broker 守护进程
+npx agent-notify-mine broker stop
+
+# 2. 清理所有配置、hooks、状态、日志
 npx agent-notify-mine clean --purge
 
-# 2. 确认缓存目录已不存在；如果仍存在可以手动删除
+# 3. 确认缓存目录已删除
 rm -rf ~/.agent-notify
 ```
 
-#### 方式三：从源码构建的
+#### 从源码构建的
 
 ```bash
+agent-notify broker stop
 agent-notify clean --purge
 rm ~/.local/bin/agent-notify       # 或你 go build 指定的路径
 ```
 
-> ⚠️ `clean` 只删除 agent-notify 写入的 hooks 条目，`~/.claude/settings.json` 和 `~/.codebuddy/settings.json` 中的其他配置（模型、环境变量等）不受影响。
+> ⚠️ 重要：`clean --purge` 之前必须先 `broker stop`，否则 broker 后台守护进程可能继续运行。
 >
-> 如果只想临时关闭通信，不要卸载，使用 `agent-notify broker stop` 或飞书控制卡里的“关闭通信 / 断开并清理”。
+> `clean` 只删除 agent-notify 写入的 hooks 条目，Agent 配置文件（`settings.json` 等）中的其他用户配置不受影响。
 >
-> 注：VS Code 扩展需在扩展面板手动卸载，与上述方式无关。
+> VS Code 扩展需在扩展面板手动卸载，与上述方式无关。
+
+### `agent-notify clean` 清理内容
+
+| 清理项 | `clean` | `clean --purge` |
+|--------|:------:|:-------------:|
+| `~/.agent-notify/config.yaml` | ✅ 重置为默认（全部关闭） | ✅ 整个目录删 |
+| `~/.agent-notify/state.json`（去重状态） | ✅ 删 | ✅ 整个目录删 |
+| `~/.agent-notify/sessions.json`（会话状态） | ❌ 不删 | ✅ 整个目录删 |
+| `~/.agent-notify/agent-notify.log`（日志） | ✅ 删 | ✅ 整个目录删 |
+| `~/.agent-notify/approvals.json` | ✅ 删 | ✅ 整个目录删 |
+| `~/.agent-notify/input_requests.json` | ❌ 不删 | ✅ 整个目录删 |
+| `~/.agent-notify/processes.json` | ✅ 删 | ✅ 整个目录删 |
+| `~/.agent-notify/threads.json` | ✅ 删 | ✅ 整个目录删 |
+| `~/.agent-notify/tasks.json` | ✅ 删 | ✅ 整个目录删 |
+| `~/.agent-notify/views.json` | ✅ 删 | ✅ 整个目录删 |
+| `~/.agent-notify/broker.pid` | ✅ 删 | ✅ 整个目录删 |
+| `~/.agent-notify/audit.log` | ✅ 删 | ✅ 整个目录删 |
+| `~/.agent-notify/logs/`（运行日志） | ✅ 删 | ✅ 整个目录删 |
+| `~/.agent-notify/` 整个目录 | ❌ 保留 | ✅ 删 |
+| pending approvals | ✅ 拒绝 | ✅ 拒绝 |
+| 受控 Agent 子进程 | ✅ 停止 | ✅ 停止 |
+| 远程飞书对话 profile（飞书凭证） | ✅ 重置为默认 | ✅ 整个目录删 |
+| broker 后台守护进程 | ❌ 不杀（需先手动 `broker stop`） | ❌ 不杀（需先手动 `broker stop`） |
+| Claude Code hooks | ✅ 移除自身条目 | ✅ 移除自身条目 |
+| Codex hooks | ✅ 移除自身条目 | ✅ 移除自身条目 |
+| CodeBuddy hooks | ✅ 移除自身条目 | ✅ 移除自身条目 |
+| Cursor hooks | ✅ 移除自身条目 | ✅ 移除自身条目 |
+| Hermes hooks | ✅ 移除自身条目 | ✅ 移除自身条目 |
+| 二进制本身 | ❌ 不删 | ❌ 不删 |
+| npm 全局包 | ❌ 不删 | ❌ 不删 |
 
 ## 发布到 npm
 

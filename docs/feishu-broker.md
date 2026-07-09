@@ -169,24 +169,72 @@ Codex：
 
 ## 开启、暂停、断开
 
-- `开启通信`：手机端可以继续发任务和审批。
-- `暂停通信`：保留 broker listener，只关闭当前 profile；手机端可重新开启。
-- `断开并清理`：关闭该 profile、拒绝待审批并停止受控任务；如果没有其他 profile 在线，会停止 broker listener。下次可在电脑上执行：
+### 三种关闭方式对比
+
+飞书远程有三种不同程度的"关闭"，按影响范围从小到大：
+
+| 操作 | 命令行 | 飞书卡片按钮 | 效果 |
+|------|--------|------------|------|
+| 暂停通信 | `agent-notify broker stop --profile <name>` | 「暂停通信」 | 关闭指定 profile、拒绝待审批、停止该 profile 受控进程、停 broker daemon |
+| 断开并清理 | `agent-notify broker disconnect --profile <name>` | 「断开并清理」 | 关闭指定 profile、拒绝待审批、停止受控进程。daemon 在所有 profile 关闭后自动退出 |
+| 只停止任务 | `agent-notify kill <id\|pid>` | 「停止任务」 | 只杀受控 Agent 子进程，profile 和 daemon 不受影响 |
+
+### 命令行控制
 
 ```bash
-agent-notify broker start
-agent-notify broker card
-```
-
-命令行关闭：
-
-```bash
+# 暂停通信（完全停止，含 daemon）
 agent-notify broker stop
 agent-notify broker stop --profile claude-main
 agent-notify broker stop --profile codex-main
+
+# 断开 profile（只关 profile，daemon 视情况退出）
+agent-notify broker disconnect --profile claude-main
+
+# 断开后重新开启
+agent-notify broker start
+agent-notify broker card --profile claude-main
 ```
 
-`broker stop` 会尝试停止该 profile 的受控任务，并清理后台 broker 长连接。多次从不同终端启动过 broker 时，建议执行 stop 后再 start，避免旧连接继续接收飞书事件。
+`broker stop` 会做四件事：禁用 profile → 拒绝 pending approval → 停止受控进程 → 杀掉 broker 后台守护进程。下次需要 `broker start` 重新启动。
+
+`broker disconnect` 只断开指定 profile，broker daemon 在所有 profile 关闭后自动退出。飞书卡片里的「断开并清理」按钮效果等同于 `broker disconnect`。
+
+### 飞书卡片按钮
+
+手机飞书控制台卡上的按钮：
+
+- `开启通信`：重新启用 broker + approval + 当前 profile。不会自动启动 daemon（daemon 需要电脑端 `broker start`）。
+- `暂停通信`：关闭当前 profile，拒绝待审批，停止受控进程。**不杀 daemon**，其他 profile 不受影响。
+- `断开并清理`：关闭当前 profile，拒绝待审批，停止受控进程。如果没有其他在线 profile，daemon 自动退出。
+- `停止任务`：只停止当前 profile 的受控 Agent 子进程。
+- `刷新状态`：重新发送控制台卡。
+
+### 只保留消息通知，去掉飞书远程功能
+
+如果想清除飞书远程对话配置，只保留消息通知：
+
+```bash
+# 方法一：手动清理
+agent-notify broker stop --profile claude-main
+agent-notify broker stop --profile codex-main
+# 编辑 ~/.agent-notify/config.yaml，删除或清空 profiles 中对应 profile 的 feishu 字段
+
+# 方法二：用 clean 重置（会连带清理消息通知配置）
+agent-notify broker stop
+agent-notify clean
+# clean 会重置整个 config.yaml，之后需重新 agent-notify init 配置消息通知
+```
+
+> 注意：`agent-notify clean` 会删除所有配置（包括消息通知渠道凭证和事件订阅），不是只清飞书远程。如果只想清除远程保留通知，推荐方法一手动编辑 config.yaml。
+
+### 彻底清理（含远程+通知+状态+hooks）
+
+```bash
+agent-notify broker stop
+agent-notify clean --purge
+```
+
+详见 [README 卸载指南](../README.md#卸载指南)。
 
 ## 常见问题
 
@@ -243,16 +291,30 @@ codex --ask-for-approval on-request exec --json --sandbox workspace-write --cd /
 新增状态文件：
 
 ```text
+~/.agent-notify/sessions.json
 ~/.agent-notify/threads.json
 ~/.agent-notify/tasks.json
 ~/.agent-notify/views.json
+~/.agent-notify/input_requests.json
 ~/.agent-notify/logs/runs/<profile>-<thread>-<task>.log
+~/.agent-notify/audit.log
 ```
 
-彻底清理：
+### 只删远程配置，保留消息通知
 
 ```bash
+agent-notify broker stop --profile claude-main
+agent-notify broker stop --profile codex-main
+# 手动编辑 ~/.agent-notify/config.yaml，删除或清空 profile 的 feishu 字段
+```
+
+### 彻底清理
+
+```bash
+agent-notify broker stop
 agent-notify clean --purge
 ```
 
-清理会删除 broker 状态、审批、对话窗口、任务索引、飞书导航状态、profile 飞书机器人配置和运行日志，只移除 agent-notify 写入的 hooks，不删除用户自己的 Claude/Codex 其他配置。
+> ⚠️ `clean --purge` 前必须先 `broker stop`，否则 daemon 可能继续运行。
+>
+> 清理会删除 broker 状态、审批、对话窗口、任务索引、飞书导航状态、profile 飞书凭证和运行日志，并移除所有 Agent 的 agent-notify hooks。不删除用户自己的 Claude/Codex 其他配置。详见 [README 卸载指南](../README.md#卸载指南)。

@@ -254,8 +254,15 @@ func normalizeManagedHookEntries(hooks map[string]any, event string, command str
 			if !ok || !isManagedHook(hookMap) {
 				continue
 			}
-			hookMap["command"] = command
+			normalizeManagedHook(hookMap, event, command)
 		}
+	}
+}
+
+func normalizeManagedHook(hookMap map[string]any, event string, command string) {
+	hookMap["command"] = command
+	if event == "PermissionRequest" {
+		delete(hookMap, "timeout")
 	}
 }
 

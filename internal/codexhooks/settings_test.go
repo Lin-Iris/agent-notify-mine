@@ -232,6 +232,45 @@ func TestInstall_RemovesLegacyMatcherFromManagedCodexHook(t *testing.T) {
 	}
 }
 
+func TestInstall_RemovesPermissionRequestTimeoutFromManagedCodexHook(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hooks.json")
+	existing := `{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [{"type": "command", "command": "/old/bin/agent-notify handle-codex-hook", "timeout": 30}]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{"type": "command", "command": "/old/bin/agent-notify handle-codex-hook", "timeout": 30}]
+      }
+    ]
+  }
+}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Install(path, "/tmp/agent-notify"); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	got := readSettingsForTest(t, path)
+	hooks := got["hooks"].(map[string]any)
+
+	permissionHook := firstManagedHookForTest(t, hooks["PermissionRequest"].([]any))
+	if _, has := permissionHook["timeout"]; has {
+		t.Fatalf("managed Codex PermissionRequest timeout should be removed, got %v", permissionHook["timeout"])
+	}
+
+	stopHook := firstManagedHookForTest(t, hooks["Stop"].([]any))
+	if got := stopHook["timeout"]; got != float64(30) {
+		t.Fatalf("managed Codex Stop timeout = %v, want legacy timeout preserved", got)
+	}
+}
+
 // TestUninstall_RemovesOnlyManagedHooks 卸载只删 agent-notify 写入的 hook，
 // 用户自定义 hook 原样保留。
 func TestUninstall_RemovesOnlyManagedHooks(t *testing.T) {
@@ -346,6 +385,28 @@ func collectCommandsForTest(entries []any) []string {
 		}
 	}
 	return out
+}
+
+func firstManagedHookForTest(t *testing.T, entries []any) map[string]any {
+	t.Helper()
+	for _, e := range entries {
+		entryMap, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		inner, ok := entryMap["hooks"].([]any)
+		if !ok {
+			continue
+		}
+		for _, h := range inner {
+			hm, ok := h.(map[string]any)
+			if ok && isManagedHook(hm) {
+				return hm
+			}
+		}
+	}
+	t.Fatal("managed hook not found")
+	return nil
 }
 
 func containsString(haystack []string, needle string) bool {

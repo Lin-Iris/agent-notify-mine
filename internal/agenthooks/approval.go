@@ -30,15 +30,20 @@ type hookPermissionRequestReply struct {
 }
 
 type codexHookDecisionOutput struct {
-	Decision string `json:"decision,omitempty"`
-	Reason   string `json:"reason,omitempty"`
+	HookSpecificOutput struct {
+		HookEventName string                       `json:"hookEventName"`
+		Decision      *codexPermissionRequestReply `json:"decision,omitempty"`
+	} `json:"hookSpecificOutput"`
+}
+
+type codexPermissionRequestReply struct {
+	Behavior string `json:"behavior"`
+	Message  string `json:"message,omitempty"`
 }
 
 const (
 	hookPermissionBehaviorAllow = "allow"
 	hookPermissionBehaviorDeny  = "deny"
-	codexHookDecisionAllow      = "allow"
-	codexHookDecisionBlock      = "block"
 )
 
 var sendApprovalPromptForHook = sendApprovalPrompt
@@ -159,25 +164,22 @@ func sendApprovalPrompt(ctx context.Context, cfg config.Config, logPath string, 
 
 func writeAgentHookDecision(stdout io.Writer, agent, eventName, behavior, reason string) error {
 	if agent == "codex" {
-		return writeCodexHookDecision(stdout, behavior, reason)
+		return writeCodexHookDecision(stdout, eventName, behavior, reason)
 	}
 	return writeHookDecision(stdout, eventName, behavior, reason)
 }
 
-func writeCodexHookDecision(stdout io.Writer, behavior, reason string) error {
+func writeCodexHookDecision(stdout io.Writer, eventName, behavior, reason string) error {
 	if stdout == nil {
 		return nil
 	}
-	decision := codexHookDecisionAllow
+	var out codexHookDecisionOutput
+	out.HookSpecificOutput.HookEventName = eventName
+	out.HookSpecificOutput.Decision = &codexPermissionRequestReply{
+		Behavior: behavior,
+	}
 	if behavior == hookPermissionBehaviorDeny {
-		decision = codexHookDecisionBlock
-	}
-	out := codexHookDecisionOutput{
-		Decision: decision,
-		Reason:   reason,
-	}
-	if decision == codexHookDecisionAllow {
-		out.Reason = ""
+		out.HookSpecificOutput.Decision.Message = reason
 	}
 	if err := json.NewEncoder(stdout).Encode(out); err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: writeCodexHookDecision encode error: %v\n", err)

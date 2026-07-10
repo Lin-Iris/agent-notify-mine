@@ -174,8 +174,41 @@ func TestMaybeHandleApprovalWritesAllowForRemoteCodexApproval(t *testing.T) {
 		t.Fatal("remote codex approval should be handled")
 	}
 	got := decodeCodexHookDecision(t, stdout.Bytes())
-	if got.Decision != codexHookDecisionAllow {
-		t.Fatalf("Decision = %#v, want %q", got, codexHookDecisionAllow)
+	if got.HookSpecificOutput.HookEventName != "PermissionRequest" {
+		t.Fatalf("hookEventName = %q, want PermissionRequest", got.HookSpecificOutput.HookEventName)
+	}
+	if got.HookSpecificOutput.Decision == nil || got.HookSpecificOutput.Decision.Behavior != hookPermissionBehaviorAllow {
+		t.Fatalf("Decision = %#v, want behavior %q", got.HookSpecificOutput.Decision, hookPermissionBehaviorAllow)
+	}
+}
+
+func TestMaybeHandleApprovalWritesDenyForRemoteCodexApproval(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AGENT_NOTIFY_REMOTE_PROFILE", "codex-main")
+	cfg := remoteApprovalTestConfig()
+
+	withApprovalPrompt(t, func(ctx context.Context, cfg config.Config, logPath string, evt event.Event, req approval.Request, profileName string, profile config.ProfileConfig) error {
+		decideApproval(t, req, approval.DecisionDeny)
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	handled, err := MaybeHandleApproval(context.Background(), cfg, t.TempDir()+"/state.json", t.TempDir()+"/log.txt", testCodexPermissionEvent(), &stdout)
+	if err != nil {
+		t.Fatalf("MaybeHandleApproval() error = %v", err)
+	}
+	if !handled {
+		t.Fatal("remote codex approval should be handled")
+	}
+	got := decodeCodexHookDecision(t, stdout.Bytes())
+	if got.HookSpecificOutput.HookEventName != "PermissionRequest" {
+		t.Fatalf("hookEventName = %q, want PermissionRequest", got.HookSpecificOutput.HookEventName)
+	}
+	if got.HookSpecificOutput.Decision == nil || got.HookSpecificOutput.Decision.Behavior != hookPermissionBehaviorDeny {
+		t.Fatalf("Decision = %#v, want behavior %q", got.HookSpecificOutput.Decision, hookPermissionBehaviorDeny)
+	}
+	if got.HookSpecificOutput.Decision.Message == "" {
+		t.Fatal("denied codex approval should include a message")
 	}
 }
 

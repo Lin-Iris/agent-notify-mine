@@ -1160,6 +1160,3 @@ npm publish
 
 > 注：npx 包装器不再维护测试文件，发布时 `package.json` 中 `"files"` 可改为 `["bin", "lib"]`。
 
-## ❤️ 赞助
-
-感谢 **[DDS（呆呆兽）](https://www.ddshub.cc/register?aff=E7N6PDYWW4N5)** 赞助本项目！呆呆兽是一家专注 Claude 和 CodeX 的可靠高效 API 中转站，为个人和企业用户提供极具性价比的国内 Claude / CodeX API 直连加速服务。支持 Claude Haiku / Opus / Sonnet 等满血模型。企业客户更可享受定制化分组和技术支持服务。
